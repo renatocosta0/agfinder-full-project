@@ -1,0 +1,43 @@
+services:
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - NODE_ENV=development
+      - SSL_ENABLED=false
+      - DATABASE_URL=postgres://agfinder:agfinder@postgres:5432/agfinder
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs
+    env_file:
+      - .env-docker
+    restart: unless-stopped
+
+  postgres:
+    image: postgis/postgis:15-3.3
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=agfinder
+      - POSTGRES_PASSWORD=agfinder
+      - POSTGRES_DB=agfinder
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata: 
