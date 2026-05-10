@@ -144,11 +144,18 @@ let limiterOptions = {
 };
 
 if (process.env.REDIS_URL && process.env.NODE_ENV === 'production') {
-  const redisClient = new Redis(process.env.REDIS_URL);
-  limiterOptions.store = new RedisStore({
-    sendCommand: (...args) => redisClient.call(...args),
-  });
-  logger.info('Rate limiting configured with Redis store');
+  try {
+    const parsed = new URL(process.env.REDIS_URL);
+    if (!parsed.port) parsed.port = '6379';
+    const redisClient = new Redis(process.env.REDIS_URL);
+    limiterOptions.store = new RedisStore({
+      sendCommand: (...args) => redisClient.call(...args),
+    });
+    logger.info('Rate limiting configured with Redis store');
+  } catch (e) {
+    logger.warn('Failed to connect to Redis for rate limiting, using in-memory store:', e.message || e);
+    logger.info('Rate limiting configured with in-memory store');
+  }
 } else {
   logger.info('Rate limiting configured with in-memory store');
 }

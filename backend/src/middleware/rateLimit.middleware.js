@@ -36,38 +36,53 @@ const DEFAULT_CONFIG = {
   }
 };
 
-// Create Redis client for rate limiting
-const redisClient = new Redis({
-  host: process.env.REDIS_HOST || 'redis', // Use 'redis' as hostname in Docker environment
-  port: process.env.REDIS_PORT || 6379,
-  password: process.env.REDIS_PASSWORD || '',
-  db: process.env.REDIS_RATE_LIMIT_DB || 0,
-  retryStrategy: (times) => {
-    const delay = Math.min(times * 50, 2000);
-    return delay;
-  },
-  // Add a connection timeout to prevent endless retries
-  connectTimeout: 10000,
-  maxRetriesPerRequest: 3
-});
+// Create Redis client for rate limiting only if Redis is configured
+let redisClient = null;
+let useMemoryStore = true;
 
-// Handle Redis client errors
-redisClient.on('error', (err) => {
-  logger.error(`Redis rate limiter error: ${err.message}`);
-});
+if (process.env.REDIS_URL || process.env.REDIS_HOST) {
+  try {
+    if (process.env.REDIS_URL) {
+      const parsed = new URL(process.env.REDIS_URL);
+      if (!parsed.port) parsed.port = '6379';
+      redisClient = new Redis(process.env.REDIS_URL);
+    } else {
+      const port = parseInt(process.env.REDIS_PORT || '6379', 10);
+      if (Number.isNaN(port) || port < 0 || port > 65535) {
+        throw new Error(`Invalid REDIS_PORT: ${process.env.REDIS_PORT}`);
+      }
+      redisClient = new Redis({
+        host: process.env.REDIS_HOST,
+        port,
+        password: process.env.REDIS_PASSWORD || '',
+        db: process.env.REDIS_RATE_LIMIT_DB || 0,
+        retryStrategy: (times) => {
+          const delay = Math.min(times * 50, 2000);
+          return delay;
+        },
+        connectTimeout: 10000,
+        maxRetriesPerRequest: 3
+      });
+    }
+    useMemoryStore = false;
 
-redisClient.on('connect', () => {
-  logger.info('Redis rate limiter connected successfully');
-});
+    redisClient.on('error', (err) => {
+      logger.error(`Redis rate limiter error: ${err.message}`);
+      if (!useMemoryStore) {
+        logger.warn('Redis connection failed, falling back to memory store for rate limiting');
+        useMemoryStore = true;
+      }
+    });
 
-// Fallback to memory store if Redis connection fails
-let useMemoryStore = false;
-redisClient.on('error', () => {
-  if (!useMemoryStore) {
-    logger.warn('Redis connection failed, falling back to memory store for rate limiting');
+    redisClient.on('connect', () => {
+      logger.info('Redis rate limiter connected successfully');
+    });
+  } catch (e) {
+    logger.warn('Failed to initialize Redis for rate limiting, using memory store:', e.message || e);
+    redisClient = null;
     useMemoryStore = true;
   }
-});
+}
 
 // Use database settings if available
 let CONFIG = { ...DEFAULT_CONFIG };
@@ -108,12 +123,12 @@ function getBaseConfig() {
         ...options.message,
         detail: `Limit of ${options.max} requests per ${options.windowMs / 60000} minute(s) exceeded. Try again after ${Math.ceil(options.windowMs / 60000)} minute(s).`
       };
-      
+
       logger.warn(`Rate limit exceeded for IP ${req.ip} on ${req.originalUrl}`);
       res.status(429).json(errorResponse);
     }
   };
-  
+
   // Use Redis store if connection is available, otherwise use memory store
   if (!useMemoryStore) {
     try {
@@ -131,7 +146,7 @@ function getBaseConfig() {
       useMemoryStore = true;
     }
   }
-  
+
   return config;
 }
 

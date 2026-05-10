@@ -12,54 +12,9 @@ const { CACHE_CONFIG } = require('../config/maps.config');
 const gzipAsync = promisify(zlib.gzip);
 const gunzipAsync = promisify(zlib.gunzip);
 
-// Initialize Redis client (optional — falls back to memory-only if Redis is not configured)
-let redisClient;
-const hasRedisConfig = process.env.REDIS_URL || process.env.REDIS_HOST;
-
-if (hasRedisConfig) {
-  try {
-    redisClient = process.env.REDIS_URL
-      ? new Redis(process.env.REDIS_URL)
-      : new Redis({
-        host: process.env.REDIS_HOST,
-        port: parseInt(process.env.REDIS_PORT || '6379', 10),
-        password: process.env.REDIS_PASSWORD || undefined,
-        db: parseInt(process.env.REDIS_DB || '0', 10),
-        retryStrategy: (times) => {
-          const delay = Math.min(times * 100, 3000);
-          logger.info(`Redis connection retry in ${delay}ms (attempt ${times})`);
-          return delay;
-        }
-      });
-
-    redisClient.on('connect', () => {
-      logger.info('Connected to Redis server');
-    });
-
-    redisClient.on('error', (error) => {
-      logger.error('Redis connection error:', error.message || error);
-    });
-  } catch (e) {
-    logger.warn('Failed to initialize Redis client, using memory cache only:', e.message || e);
-    redisClient = {
-      get: async () => null,
-      set: async () => 'OK',
-      setex: async () => 'OK',
-      del: async () => 0,
-      keys: async () => [],
-      ttl: async () => -1,
-      expire: async () => 1,
-      hIncrBy: async () => 1,
-      hGet: async () => null,
-      hSet: async () => 1,
-      hGetAll: async () => ({}),
-      hDel: async () => 0,
-    };
-  }
-} else {
-  logger.info('Redis not configured (REDIS_URL/REDIS_HOST missing). Using memory cache only.');
-  // Dummy client so downstream consumers don't crash
-  redisClient = {
+// Dummy client so downstream consumers don't crash when Redis is not available
+function createDummyClient() {
+  return {
     get: async () => null,
     set: async () => 'OK',
     setex: async () => 'OK',
@@ -74,6 +29,65 @@ if (hasRedisConfig) {
     hDel: async () => 0,
   };
 }
+
+// Initialize Redis client (optional — falls back to memory-only if Redis is not configured)
+let redisClient;
+const hasRedisConfig = process.env.REDIS_URL || process.env.REDIS_HOST;
+
+function initRedisClient() {
+  if (process.env.REDIS_URL) {
+    try {
+      const parsed = new URL(process.env.REDIS_URL);
+      if (!parsed.port) parsed.port = '6379';
+      const client = new Redis(process.env.REDIS_URL);
+      client.on('connect', () => {
+        logger.info('Connected to Redis server');
+      });
+      client.on('error', (error) => {
+        logger.error('Redis connection error:', error.message || error);
+      });
+      return client;
+    } catch (e) {
+      logger.warn('Invalid REDIS_URL or failed to initialize Redis client, using memory cache only:', e.message || e);
+      return createDummyClient();
+    }
+  }
+
+  if (process.env.REDIS_HOST) {
+    try {
+      const port = parseInt(process.env.REDIS_PORT || '6379', 10);
+      if (Number.isNaN(port) || port < 0 || port > 65535) {
+        throw new Error(`Invalid REDIS_PORT: ${process.env.REDIS_PORT}`);
+      }
+      const client = new Redis({
+        host: process.env.REDIS_HOST,
+        port,
+        password: process.env.REDIS_PASSWORD || undefined,
+        db: parseInt(process.env.REDIS_DB || '0', 10),
+        retryStrategy: (times) => {
+          const delay = Math.min(times * 100, 3000);
+          logger.info(`Redis connection retry in ${delay}ms (attempt ${times})`);
+          return delay;
+        }
+      });
+      client.on('connect', () => {
+        logger.info('Connected to Redis server');
+      });
+      client.on('error', (error) => {
+        logger.error('Redis connection error:', error.message || error);
+      });
+      return client;
+    } catch (e) {
+      logger.warn('Failed to initialize Redis client, using memory cache only:', e.message || e);
+      return createDummyClient();
+    }
+  }
+
+  logger.info('Redis not configured (REDIS_URL/REDIS_HOST missing). Using memory cache only.');
+  return createDummyClient();
+}
+
+redisClient = initRedisClient();
 
 // Also maintain a memory cache for ultra-fast access to frequent items
 const memoryCache = new Map();
