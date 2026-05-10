@@ -2,21 +2,27 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copiando os arquivos de dependências
+# Instalar dependências do sistema
+RUN apk add --no-cache python3 make g++ curl netcat-openbsd
+
+# Definir variáveis de ambiente padrão
+ENV NODE_ENV=production
+ENV PORT=3001
+
+# Copiar package.json e instalar dependências
 COPY package*.json ./
+RUN npm install --production
 
-# Instalando dependências
-RUN npm install
-
-# Copiando o restante do código-fonte
+# Copiar o restante dos arquivos da aplicação
 COPY . .
 
-# Expor a porta da aplicação
-EXPOSE 3000
+# Verificação de saúde será feita via HEALTHCHECK inline (sem script externo)
 
-# Definir variáveis de ambiente (podem ser sobrescritas via docker-compose)
-ENV NODE_ENV=development
-ENV PORT=3000
+# Expor a porta
+EXPOSE 3001
 
-# Iniciar o servidor
-CMD ["npm", "start"] 
+# Comando para iniciar o servidor
+CMD ["npm", "start"]
+
+# Verificação de saúde
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD curl -f http://localhost:3001/health || exit 1 

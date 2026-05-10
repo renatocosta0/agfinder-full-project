@@ -686,7 +686,7 @@ const getBonusHistory = async (userId, filters = {}) => {
         {
           model: Contribution,
           as: 'contribution',
-          attributes: ['id', 'title', 'created_at'],
+          attributes: ['id', 'contribution_type', 'created_at'],
           required: false
         }
       ]
@@ -751,7 +751,7 @@ const getBonusHistory = async (userId, filters = {}) => {
           related_contribution: transaction.contribution 
             ? {
                 id: transaction.contribution.id,
-                title: transaction.contribution.title,
+                title: transaction.contribution.contribution_type,
                 date: new Date(transaction.contribution.created_at).toISOString().split('T')[0]
               } 
             : null

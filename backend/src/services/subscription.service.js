@@ -1,6 +1,18 @@
 const { SubscriptionTransaction, User, sequelize } = require('../models');
 const logger = require('../utils/logger');
 
+// Helpers for config
+const intFromEnv = (name, def) => {
+  const n = parseInt(process.env[name], 10);
+  return Number.isFinite(n) && n > 0 ? n : def;
+};
+
+const getDateDaysAgo = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d;
+};
+
 /**
  * Create a new subscription
  * @param {Object} subscriptionData
@@ -325,49 +337,119 @@ const deactivateExpiredSubscriptions = async () => {
 };
 
 /**
- * Clean up old subscriptions (expired and older than 90 days)
+ * Clean up old subscriptions (inactive and older than retention)
  * @param {boolean} [dryRun=false] - If true, only count records but don't delete
  * @returns {Promise<Object>} Count of subscriptions deleted
  */
 const cleanupOldSubscriptions = async (dryRun = false) => {
   try {
-    const ninetyDaysAgo = new Date();
-    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    const retentionDays = intFromEnv('SUBSCRIPTION_HISTORY_RETENTION_DAYS', 90);
+    const cutoff = getDateDaysAgo(retentionDays);
+    const batchLimit = intFromEnv('CLEANUP_DELETE_LIMIT', 5000);
     
-    // Find all inactive subscriptions that ended more than 90 days ago
-    const oldSubscriptions = await SubscriptionTransaction.findAll({
-      where: {
-        is_active: false,
-        expires_at: {
-          [sequelize.Op.lt]: ninetyDaysAgo,
+    let total = 0;
+    while (true) {
+      const rows = await SubscriptionTransaction.findAll({
+        attributes: ['id'],
+        where: {
+          is_active: false,
+          expires_at: { [sequelize.Op.lt]: cutoff },
         },
-      },
-    });
-    
-    if (oldSubscriptions.length === 0) {
-      logger.info('No old subscriptions to clean up');
-      return { deleted: 0, dryRun };
+        limit: batchLimit,
+      });
+      if (!rows.length) break;
+      const ids = rows.map(r => r.id);
+      if (dryRun) {
+        total += ids.length;
+        break;
+      }
+      const deleted = await SubscriptionTransaction.destroy({ where: { id: ids } });
+      total += deleted;
+      if (ids.length < batchLimit) break;
     }
-    
-    if (dryRun) {
-      logger.info(`Dry run: Would delete ${oldSubscriptions.length} old subscriptions`);
-      return { deleted: oldSubscriptions.length, dryRun };
-    }
-    
-    // Delete old subscriptions
-    await SubscriptionTransaction.destroy({
-      where: {
-        is_active: false,
-        expires_at: {
-          [sequelize.Op.lt]: ninetyDaysAgo,
-        },
-      },
-    });
-    
-    logger.info(`${oldSubscriptions.length} old subscriptions deleted`);
-    return { deleted: oldSubscriptions.length, dryRun };
+    logger.info(`${total} old subscriptions deleted (inactive, older than ${retentionDays} days)`);
+    return { deleted: total, dryRun };
   } catch (error) {
     logger.error('Error cleaning up old subscriptions:', error);
+    throw error;
+  }
+};
+
+/**
+ * Mark pending transactions past expiry as expired
+ */
+const expirePendingTransactions = async () => {
+  try {
+    const now = new Date();
+    const [updated] = await SubscriptionTransaction.update(
+      { status: 'expired', is_active: false },
+      {
+        where: {
+          status: 'pending',
+          expires_at: { [sequelize.Op.lt]: now },
+        },
+      }
+    );
+    logger.info(`Pending->expired transition applied to ${updated} transactions`);
+    return { expired: updated };
+  } catch (error) {
+    logger.error('Error expiring pending transactions:', error);
+    throw error;
+  }
+};
+
+/**
+ * Purge stale transactions (pending/failed/expired) older than their retention windows
+ */
+const purgeStaleTransactions = async (dryRun = false) => {
+  try {
+    const pendingDays = intFromEnv('SUBSCRIPTION_PENDING_RETENTION_DAYS', 30);
+    const failedDays = intFromEnv('SUBSCRIPTION_FAILED_RETENTION_DAYS', 30);
+    const expiredDays = intFromEnv('SUBSCRIPTION_EXPIRED_RETENTION_DAYS', 60);
+    const batchLimit = intFromEnv('CLEANUP_DELETE_LIMIT', 5000);
+
+    const specs = [
+      {
+        name: 'pending',
+        where: {
+          status: 'pending',
+          expires_at: { [sequelize.Op.lt]: getDateDaysAgo(pendingDays) },
+        },
+      },
+      {
+        name: 'failed',
+        where: {
+          status: 'failed',
+          created_at: { [sequelize.Op.lt]: getDateDaysAgo(failedDays) },
+        },
+      },
+      {
+        name: 'expired',
+        where: {
+          status: 'expired',
+          expires_at: { [sequelize.Op.lt]: getDateDaysAgo(expiredDays) },
+        },
+      },
+    ];
+
+    const results = {};
+    for (const spec of specs) {
+      let total = 0;
+      while (true) {
+        const rows = await SubscriptionTransaction.findAll({ attributes: ['id'], where: spec.where, limit: batchLimit });
+        if (!rows.length) break;
+        const ids = rows.map(r => r.id);
+        if (dryRun) { total += ids.length; break; }
+        const deleted = await SubscriptionTransaction.destroy({ where: { id: ids } });
+        total += deleted;
+        if (ids.length < batchLimit) break;
+      }
+      results[spec.name] = total;
+      logger.info(`Purged ${total} '${spec.name}' transactions (stale)`);
+    }
+    return results;
+  } catch (error) {
+    logger.error('Error purging stale transactions:', error);
     throw error;
   }
 };
@@ -379,4 +461,6 @@ module.exports = {
   extendSubscription,
   deactivateExpiredSubscriptions,
   cleanupOldSubscriptions,
+  expirePendingTransactions,
+  purgeStaleTransactions,
 }; 

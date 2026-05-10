@@ -1,6 +1,8 @@
-const axios = require('axios');
+const { Op } = require('sequelize');
 const { User, SubscriptionTransaction, sequelize } = require('../models');
+const config = require('../config/config');
 const logger = require('../utils/logger');
+const PaymentAdapterFactory = require('../services/payment/payment-adapter-factory');
 
 // Get subscription plans
 const getSubscriptionPlans = async (req, res) => {
@@ -30,19 +32,46 @@ const getSubscriptionPlans = async (req, res) => {
       },
     };
     
-    // Check if user has active subscription
-    const { user } = req;
-    const hasActiveSubscription = 
-      user.subscription_type !== 'none' && 
-      user.subscription_end && 
-      new Date() < new Date(user.subscription_end);
+    // Check if user has active subscription (aligned with User model)
+    let freshUser = await User.findByPk(req.user.id);
+    let effectiveEnd = freshUser.current_subscription_end ? new Date(freshUser.current_subscription_end) : null;
+    let hasActiveSubscription = (freshUser.has_active_subscription === true) || (effectiveEnd && new Date() < effectiveEnd);
+
+    // If not marked active, infer from latest completed transaction and fix user record
+    if (!hasActiveSubscription) {
+      const lastCompleted = await SubscriptionTransaction.findOne({
+        where: { user_id: req.user.id, status: 'completed' },
+        order: [['completed_at', 'DESC']],
+      });
+      if (lastCompleted) {
+        let days = 0;
+        switch (lastCompleted.subscription_type) {
+          case 'daily': days = 1; break;
+          case 'weekly': days = 7; break;
+          case 'monthly': days = 30; break;
+          default: days = 0;
+        }
+        if (days > 0 && lastCompleted.completed_at) {
+          effectiveEnd = new Date(lastCompleted.completed_at);
+          effectiveEnd.setDate(effectiveEnd.getDate() + days);
+          if (effectiveEnd > new Date()) {
+            hasActiveSubscription = true;
+            try {
+              await freshUser.update({ has_active_subscription: true, current_subscription_end: effectiveEnd });
+              // refetch to ensure instance fields are current
+              freshUser = await User.findByPk(req.user.id);
+            } catch {}
+          }
+        }
+      }
+    }
     
     // Get daily subscription price for bonus conversion calculation
     const dailyPrice = parseInt(process.env.SUBSCRIPTION_DAILY_PRICE, 10) || 5;
     const bonusNeededForDaily = dailyPrice * 10; // 10 bonus points = 1 AOA
     
     // Calculate days user can get from their current bonus points
-    const potentialDays = Math.floor(user.bonus_points / bonusNeededForDaily);
+    const potentialDays = Math.floor((freshUser.bonus_points || 0) / bonusNeededForDaily);
     
     return res.status(200).json({
       status: 'success',
@@ -50,11 +79,11 @@ const getSubscriptionPlans = async (req, res) => {
         plans: Object.values(subscriptionPlans),
         has_active_subscription: hasActiveSubscription,
         current_subscription: hasActiveSubscription ? {
-          type: user.subscription_type,
-          end_date: user.subscription_end,
+          type: null,
+          end_date: freshUser.current_subscription_end || (effectiveEnd ? effectiveEnd.toISOString() : null),
         } : null,
         bonus_info: {
-          bonus_points: user.bonus_points,
+          bonus_points: freshUser.bonus_points || 0,
           exchange_rate: 10, // 10 points = 1 AOA
           info_message: potentialDays > 0 ? 
             `Your bonus points will be automatically converted to ${potentialDays} subscription day(s)` : 
@@ -71,7 +100,7 @@ const getSubscriptionPlans = async (req, res) => {
   }
 };
 
-// Create subscription via ProxyPay
+// Create subscription via payment adapter (proxypay or fake-payment)
 const createSubscription = async (req, res) => {
   const transaction = await sequelize.transaction();
   
@@ -96,13 +125,13 @@ const createSubscription = async (req, res) => {
     };
     
     const amount = subscriptionPrices[subscription_type];
-    
-    // Calculate expiry date for the payment reference (24 hours)
-    const expiryDate = new Date();
-    expiryDate.setHours(expiryDate.getHours() + 24);
-    
-    // Generate a unique reference (you may want to implement a more robust solution)
-    const reference = `SUB-${Date.now()}-${userId.substring(0, 8)}`;
+    const adapter = PaymentAdapterFactory.getAdapter();
+    const paymentOrder = await adapter.createPayment({
+      userId,
+      subscriptionType: subscription_type,
+      amount,
+      currency: config.payment.defaultCurrency || 'AOA',
+    });
     
     // Calculate subscription duration for metadata (used after payment confirmation)
     let days;
@@ -118,48 +147,24 @@ const createSubscription = async (req, res) => {
         break;
     }
     
+    // Normalize payment method to match DB enum (proxypay|bonus). Treat fake-payment as proxypay for DEV.
+    const paymentMethod = adapter.getProviderName() === 'fake-payment' ? 'proxypay' : adapter.getProviderName();
+
     // Create a pending subscription transaction
     const subscriptionTx = await SubscriptionTransaction.create(
       {
         user_id: userId,
         amount,
         subscription_type,
-        payment_method: 'proxypay',
-        entity: process.env.PROXYPAY_ENTITY,
-        reference,
+        payment_method: paymentMethod,
+        entity: paymentOrder.entity,
+        reference: paymentOrder.reference,
         status: 'pending',
-        expires_at: expiryDate,
+        expires_at: paymentOrder.expiryDate,
       },
       { transaction }
     );
     
-    // Call ProxyPay API to create a payment reference
-    // Note: this is a simplified example. You would need to implement the actual API call.
-    const proxyPayResponse = {
-      entity: process.env.PROXYPAY_ENTITY,
-      reference,
-      amount,
-      end_datetime: expiryDate.toISOString(),
-    };
-    
-    // In a real implementation, you would make an API call like this:
-    /*
-    const proxyPayResponse = await axios.post(
-      'https://api.proxypay.co.ao/references',
-      {
-        amount,
-        end_datetime: expiryDate.toISOString(),
-        reference,
-      },
-      {
-        headers: {
-          'Authorization': `Token ${process.env.PROXYPAY_API_KEY}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/vnd.proxypay.v2+json',
-        },
-      }
-    );
-    */
     
     await transaction.commit();
     
@@ -171,21 +176,21 @@ const createSubscription = async (req, res) => {
           id: subscriptionTx.id,
           amount,
           subscription_type,
-          entity: proxyPayResponse.entity,
-          reference: proxyPayResponse.reference,
-          expires_at: expiryDate,
+          entity: paymentOrder.entity,
+          reference: paymentOrder.reference,
+          expires_at: paymentOrder.expiryDate,
         },
         payment_instructions: {
-          entity: proxyPayResponse.entity,
-          reference: proxyPayResponse.reference,
+          entity: paymentOrder.entity,
+          reference: paymentOrder.reference,
           amount,
-          expires_at: expiryDate,
+          expires_at: paymentOrder.expiryDate,
           steps: [
             'Go to your bank app or internet banking',
             'Select "Payments" or "Transfers"',
             'Choose "Payment by reference"',
-            `Enter the entity: ${proxyPayResponse.entity}`,
-            `Enter the reference: ${proxyPayResponse.reference}`,
+            `Enter the entity: ${paymentOrder.entity}`,
+            `Enter the reference: ${paymentOrder.reference}`,
             `Enter the amount: ${amount} AOA`,
             'Confirm the payment',
             'Wait for confirmation (it may take a few minutes)',
@@ -264,21 +269,32 @@ const getUserTransactions = async (req, res) => {
     // Build where clause
     const where = { user_id: userId };
     
+    // Normalize status filter; handle 'expired' specially
     if (status) {
-      where.status = status;
+      if (status === 'expired') {
+        // expired = pending and past expiry
+        where.status = 'pending';
+        where.expires_at = { [Op.lt]: new Date() };
+      } else if (status === 'pending') {
+        // pending should exclude expired ones
+        where.status = 'pending';
+        where.expires_at = { [Op.gte]: new Date() };
+      } else {
+        where.status = status;
+      }
     }
     
     if (startDate) {
       where.created_at = {
-        ...where.created_at,
-        [sequelize.Op.gte]: new Date(startDate)
+        ...(where.created_at || {}),
+        [Op.gte]: new Date(startDate)
       };
     }
     
     if (endDate) {
       where.created_at = {
-        ...where.created_at,
-        [sequelize.Op.lte]: new Date(endDate)
+        ...(where.created_at || {}),
+        [Op.lte]: new Date(endDate)
       };
     }
     
@@ -294,18 +310,16 @@ const getUserTransactions = async (req, res) => {
       offset,
     });
     
-    // Check if user has an active subscription
-    const hasActiveSubscription = 
-      req.user.subscription_type !== 'none' && 
-      req.user.subscription_end && 
-      new Date() < new Date(req.user.subscription_end);
+    // Check if user has an active subscription (aligned with model fields)
+    const end = req.user.current_subscription_end ? new Date(req.user.current_subscription_end) : null;
+    const hasActiveSubscription = (req.user.has_active_subscription === true) || (end && new Date() < end);
 
     // Calculate days remaining if subscription active
     let daysRemaining = 0;
-    if (hasActiveSubscription) {
+    if (hasActiveSubscription && end) {
       const today = new Date();
-      const end = new Date(req.user.subscription_end);
-      daysRemaining = Math.ceil((end - today) / (1000 * 60 * 60 * 24));
+      daysRemaining = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      if (isNaN(daysRemaining) || daysRemaining < 0) daysRemaining = 0;
     }
 
     // Format subscription transactions for easier display
@@ -313,8 +327,9 @@ const getUserTransactions = async (req, res) => {
       const transaction = tx.toJSON();
       
       // Calculate duration in days
+      const subType = transaction.subscription_type || 'unknown';
       let durationDays;
-      switch (transaction.subscription_type) {
+      switch (subType) {
         case 'daily':
           durationDays = 1;
           break;
@@ -323,6 +338,9 @@ const getUserTransactions = async (req, res) => {
           break;
         case 'monthly':
           durationDays = 30;
+          break;
+        case 'bonus':
+          durationDays = 0;
           break;
         default:
           durationDays = 0;
@@ -357,7 +375,7 @@ const getUserTransactions = async (req, res) => {
         },
         // Add display info
         display_info: {
-          subscription_type_name: transaction.subscription_type.charAt(0).toUpperCase() + transaction.subscription_type.slice(1),
+          subscription_type_name: String(subType).charAt(0).toUpperCase() + String(subType).slice(1),
           duration_days: durationDays,
           amount_formatted: `${transaction.amount} AOA`,
           payment_method_name: transaction.payment_method === 'bonus' ? 'Bonus Points' : 'ProxyPay',
@@ -382,12 +400,10 @@ const getUserTransactions = async (req, res) => {
         },
         summary: {
           subscription: {
-            type: req.user.subscription_type,
+            type: hasActiveSubscription ? 'active' : 'none',
             is_active: hasActiveSubscription,
             days_remaining: daysRemaining,
-            type_name: req.user.subscription_type !== 'none' 
-              ? req.user.subscription_type.charAt(0).toUpperCase() + req.user.subscription_type.slice(1) 
-              : 'None'
+            type_name: hasActiveSubscription ? 'Active' : 'None'
           },
           has_pending_transactions: subscriptionTransactions.some(tx => 
             tx.display_info.is_pending
@@ -407,9 +423,81 @@ const getUserTransactions = async (req, res) => {
   }
 };
 
+// DEV ONLY: simulate completing or failing a pending payment
+const simulatePaymentDev = async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ status: 'error', message: 'Not allowed in production' });
+  }
+
+  const { reference } = req.params;
+  const { action } = req.body || {};
+
+  if (!reference || !['complete', 'fail'].includes(action)) {
+    return res.status(400).json({ status: 'error', message: 'Invalid reference or action' });
+  }
+
+  const t = await sequelize.transaction();
+  try {
+    const tx = await SubscriptionTransaction.findOne({
+      where: { reference, user_id: req.user.id, status: 'pending' },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (!tx) {
+      await t.rollback();
+      return res.status(404).json({ status: 'error', message: 'Subscription transaction not found or not pending' });
+    }
+
+    if (action === 'fail') {
+      await tx.update({ status: 'failed' }, { transaction: t });
+      await t.commit();
+      return res.status(200).json({ status: 'success', message: 'Transaction marked as failed' });
+    }
+
+    // complete
+    let days = 0;
+    switch (tx.subscription_type) {
+      case 'daily': days = 1; break;
+      case 'weekly': days = 7; break;
+      case 'monthly': days = 30; break;
+      default: days = 0;
+    }
+    if (days === 0) {
+      await t.rollback();
+      return res.status(400).json({ status: 'error', message: 'Invalid subscription type' });
+    }
+
+    const now = new Date();
+    let endDate = new Date(now);
+    endDate.setDate(endDate.getDate() + days);
+
+    const user = await User.findByPk(req.user.id, { transaction: t, lock: t.LOCK.UPDATE });
+    const hasActive = !!user.current_subscription_end && new Date(user.current_subscription_end) > now;
+    if (hasActive) {
+      endDate = new Date(user.current_subscription_end);
+      endDate.setDate(endDate.getDate() + days);
+    }
+
+    await tx.update({ status: 'completed', completed_at: now }, { transaction: t });
+    await user.update({
+      has_active_subscription: true,
+      current_subscription_end: endDate,
+    }, { transaction: t });
+
+    await t.commit();
+    return res.status(200).json({ status: 'success', message: 'Transaction marked as completed' });
+  } catch (err) {
+    await t.rollback();
+    logger.error('simulatePaymentDev error:', err);
+    return res.status(500).json({ status: 'error', message: 'Failed to simulate payment' });
+  }
+};
+
 module.exports = {
   getSubscriptionPlans,
   createSubscription,
   checkSubscriptionStatus,
   getUserTransactions,
-}; 
+  simulatePaymentDev,
+};

@@ -1,43 +1,78 @@
 services:
-  api:
-    build: .
-    ports:
-      - "3000:3000"
-    depends_on:
-      - postgres
-      - redis
-    environment:
-      - NODE_ENV=development
-      - SSL_ENABLED=false
-      - DATABASE_URL=postgres://agfinder:agfinder@postgres:5432/agfinder
-      - REDIS_URL=redis://redis:6379
-    volumes:
-      - ./src:/app/src
-      - ./logs:/app/logs
-    env_file:
-      - .env-docker
-    restart: unless-stopped
-
   postgres:
-    image: postgis/postgis:15-3.3
+    image: postgis/postgis:16-3.4
+    container_name: agfinder-postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       - POSTGRES_USER=agfinder
       - POSTGRES_PASSWORD=agfinder
       - POSTGRES_DB=agfinder
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agfinder"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
+    networks:
+      - agfinder-network
 
   redis:
     image: redis:7-alpine
+    container_name: agfinder-redis
     ports:
       - "6379:6379"
     volumes:
       - redisdata:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
+    networks:
+      - agfinder-network
+
+  api:
+    build: .
+    container_name: agfinder-api
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=development
+      - SSL_ENABLED=false
+      - DATABASE_URL=postgres://agfinder:agfinder@postgres:5432/agfinder
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - agfinder-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   pgdata:
-  redisdata: 
+    name: agfinder-pgdata
+  redisdata:
+    name: agfinder-redisdata
+
+networks:
+  agfinder-network:
+    name: agfinder-network 

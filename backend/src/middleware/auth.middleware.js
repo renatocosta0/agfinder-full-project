@@ -88,11 +88,10 @@ const checkSubscription = async (req, res, next) => {
 
     const { user } = req;
 
-    // If no subscription or expired
-    if (
-      user.subscription_type === 'none' ||
-      (user.subscription_end && new Date() > user.subscription_end)
-    ) {
+    // If no subscription or expired (aligned with model fields)
+    const activeEnd = user.current_subscription_end ? new Date(user.current_subscription_end) : null;
+    const isActive = (user.has_active_subscription === true) || (activeEnd && new Date() < activeEnd);
+    if (!isActive) {
       // If requesting list of POIs, allow but with limited data
       if (req.method === 'GET' && req.path.startsWith('/pois') && !req.path.includes('/')) {
         req.limitedAccess = true;
@@ -126,7 +125,28 @@ const checkSubscription = async (req, res, next) => {
   }
 };
 
+// Middleware to check if user is admin
+const isAdmin = async (req, res, next) => {
+  try {
+    const { user } = req;
+    if (!user || !user.is_admin) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Admin access required.',
+      });
+    }
+    next();
+  } catch (error) {
+    logger.error('Admin check error:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Error checking admin status.',
+    });
+  }
+};
+
 module.exports = {
   authenticate,
   checkSubscription,
-}; 
+  isAdmin,
+};

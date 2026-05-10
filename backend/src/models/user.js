@@ -8,7 +8,7 @@ module.exports = (sequelize, DataTypes) => {
     google_id: {
       type: DataTypes.STRING,
       unique: true,
-      allowNull: false,
+      allowNull: true,
     },
     name: {
       type: DataTypes.STRING,
@@ -22,9 +22,22 @@ module.exports = (sequelize, DataTypes) => {
         isEmail: true,
       },
     },
+    password_hash: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    salt: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     profile_picture: {
       type: DataTypes.STRING,
       allowNull: true,
+    },
+    is_admin: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
     },
     is_banned: {
       type: DataTypes.BOOLEAN,

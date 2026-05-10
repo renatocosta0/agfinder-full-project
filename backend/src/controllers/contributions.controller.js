@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const { PointOfInterest, Contribution, User, Validation, BonusTransaction, UserWarning, sequelize } = require('../models');
 const logger = require('../utils/logger');
+const geoUtils = require('../utils/geo.utils');
 
 // Add a contribution to a POI
 const addContribution = async (req, res) => {
@@ -67,8 +68,9 @@ const addContribution = async (req, res) => {
       }
     );
 
-    // Calculate expiry time
-    const expiryMinutes = parseInt(process.env.CONTRIBUTION_EXPIRY_MINUTES, 10) || 60;
+    // Calculate expiry time (ENV: CONTRIBUTION_TTL_MINUTES)
+    const ttlMinutes = parseInt(process.env.CONTRIBUTION_TTL_MINUTES, 10);
+    const expiryMinutes = Number.isFinite(ttlMinutes) ? ttlMinutes : 60;
     const expiryDate = new Date();
     expiryDate.setMinutes(expiryDate.getMinutes() + expiryMinutes);
 
@@ -82,6 +84,20 @@ const addContribution = async (req, res) => {
         expires_at: expiryDate,
       },
       { transaction }
+    );
+
+    // Update POI counters
+    // - contributions_count is cumulative (increment)
+    // - total_interactions should reflect ONLY the current contribution: start at 1 (the contribution itself)
+    // - validations and reports reset to 0 for the new current contribution
+    await PointOfInterest.increment(['contributions_count'], {
+      by: 1,
+      where: { id: poiId },
+      transaction,
+    });
+    await PointOfInterest.update(
+      { total_interactions: 1, validations: 0, reports: 0 },
+      { where: { id: poiId }, transaction }
     );
 
     // Add bonus points for contribution
@@ -108,6 +124,22 @@ const addContribution = async (req, res) => {
     );
 
     await transaction.commit();
+
+    // Invalidate caches so POI listings reflect validation/report updates
+    try {
+      const cacheService = require('../services/cache.service');
+      const poiInstance = await PointOfInterest.findByPk(contribution.poi_id);
+      if (poiInstance) {
+        const lat = parseFloat(poiInstance.latitude);
+        const lng = parseFloat(poiInstance.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          const radiusKm = Number(process.env.CACHE_INVALIDATION_RADIUS_KM || 5);
+          await cacheService.invalidateRegion(lat, lng, radiusKm);
+        }
+      }
+    } catch (cacheErr) {
+      logger.warn('Cache invalidation failed after validation/report:', cacheErr);
+    }
 
     return res.status(201).json({
       status: 'success',
@@ -318,6 +350,31 @@ const validateContribution = async (req, res) => {
       { transaction }
     );
 
+    // Update POI counters based on validation type (for current contribution only)
+    try {
+      const poiId = contribution.poi_id;
+      if (validation_type === 'valid') {
+        await PointOfInterest.increment(['validations'], {
+          by: 1,
+          where: { id: poiId },
+          transaction,
+        });
+      } else if (validation_type === 'report') {
+        await PointOfInterest.increment(['reports'], {
+          by: 1,
+          where: { id: poiId },
+          transaction,
+        });
+      }
+      // total_interactions = 1 (current contribution) + validations + reports
+      await PointOfInterest.update(
+        { total_interactions: sequelize.literal('1 + validations + reports') },
+        { where: { id: poiId }, transaction }
+      );
+    } catch (incErr) {
+      logger.warn('Failed to update POI counters for validation:', incErr);
+    }
+
     // If validation type is 'valid', add bonus points to the contribution creator
     if (validation_type === 'valid') {
       const bonusPoints = parseInt(process.env.BONUS_VALIDATION, 10) || 5;
@@ -455,6 +512,19 @@ const validateContribution = async (req, res) => {
 
     await transaction.commit();
 
+    // Invalidate cached regions so lists refresh with the new contribution
+    try {
+      const cacheService = require('../services/cache.service');
+      const lat = parseFloat(poi.latitude);
+      const lng = parseFloat(poi.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        const radiusKm = Number(process.env.CACHE_INVALIDATION_RADIUS_KM || 5);
+        await cacheService.invalidateRegion(lat, lng, radiusKm);
+      }
+    } catch (cacheErr) {
+      logger.warn('Cache invalidation failed after contribution:', cacheErr);
+    }
+
     return res.status(201).json({
       status: 'success',
       message: validation_type === 'valid' ? 'Contribution validated successfully' : 'Contribution reported successfully',
@@ -476,16 +546,317 @@ const validateContribution = async (req, res) => {
   }
 };
 
-// Report a contribution
+// Report a contribution (calls the newer validateContribution implementation)
 const reportContribution = async (req, res) => {
-  // We'll reuse the validateContribution function with 'report' type
-  req.body.validation_type = 'report';
-  return validateContribution(req, res);
+  req.body.validation_type = 'dispute';
+  return exports.validateContribution(req, res);
+};
+
+/**
+ * Buscar contribuições recentes
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} res - Objeto de resposta Express
+ */
+const getRecentContributions = async (req, res) => {
+  try {
+    const {
+      lat,
+      lng,
+      radius = 10,
+      limit = 20,
+      page = 1,
+      poi_id,
+      since,
+      status = 'all'
+    } = req.query;
+
+    const { Contribution, PointOfInterest, User } = require('../models');
+    const { Op } = require('sequelize');
+    
+    const offset = (page - 1) * parseInt(limit);
+    const whereClause = {};
+    
+    // Filtro por status
+    if (status !== 'all') {
+      whereClause.processing_status = status;
+    } else {
+      whereClause.processing_status = {
+        [Op.notIn]: ['rejected', 'expired']
+      };
+    }
+    
+    // Filtro por data
+    if (since) {
+      const sinceDate = new Date(since);
+      if (!isNaN(sinceDate.getTime())) {
+        whereClause.created_at = {
+          [Op.gte]: sinceDate
+        };
+      }
+    }
+
+    // Filtro por POI específico
+    if (poi_id) {
+      whereClause.poi_id = poi_id;
+      
+      const contributions = await Contribution.findAndCountAll({
+        where: whereClause,
+        limit: parseInt(limit),
+        offset,
+        order: [['created_at', 'DESC']],
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id', 'name', 'profile_picture']
+          },
+          {
+            model: PointOfInterest,
+            as: 'poi',
+            attributes: ['id', 'name', 'address', 'poi_type', 'latitude', 'longitude']
+          }
+        ]
+      });
+      
+      // Não cachear resultados específicos de contribuições
+      res.set('Cache-Control', 'no-cache');
+      
+      return res.json({
+        success: true,
+        data: {
+          contributions: contributions.rows,
+          pagination: {
+            total: contributions.count,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            pages: Math.ceil(contributions.count / parseInt(limit))
+          }
+        }
+      });
+    }
+    
+    // Filtro por região geográfica
+    if (lat && lng) {
+      const radiusKm = parseFloat(radius);
+      
+      // Usar função otimizada para consultas geográficas
+      const result = await Contribution.findInRegion(
+        parseFloat(lat),
+        parseFloat(lng),
+        radiusKm,
+        since ? new Date(since) : null
+      );
+      
+      // Paginar os resultados após a filtragem geográfica
+      const pagedResults = result.slice(offset, offset + parseInt(limit));
+      
+      // Não cachear resultados geográficos
+      res.set('Cache-Control', 'no-cache');
+      
+      return res.json({
+        success: true,
+        data: {
+          contributions: pagedResults,
+          pagination: {
+            total: result.length,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            pages: Math.ceil(result.length / parseInt(limit))
+          },
+          meta: {
+            query_center: { lat: parseFloat(lat), lng: parseFloat(lng) },
+            radius_km: radiusKm
+          }
+        }
+      });
+    }
+    
+    // Busca padrão sem filtro geográfico
+    const contributions = await Contribution.findAndCountAll({
+      where: whereClause,
+      limit: parseInt(limit),
+      offset,
+      order: [['created_at', 'DESC']],
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'name', 'profile_picture']
+        },
+        {
+          model: PointOfInterest,
+          as: 'poi',
+          attributes: ['id', 'name', 'address', 'poi_type', 'latitude', 'longitude']
+        }
+      ]
+    });
+    
+    // Não cachear contribuições
+    res.set('Cache-Control', 'no-cache');
+    
+    return res.json({
+      success: true,
+      data: {
+        contributions: contributions.rows,
+        pagination: {
+          total: contributions.count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages: Math.ceil(contributions.count / parseInt(limit))
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao buscar contribuições recentes:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Erro ao buscar contribuições recentes'
+    });
+  }
+};
+
+/**
+ * Validar uma contribuição específica
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} res - Objeto de resposta Express
+ */
+exports.validateContribution = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { validation_type, notes } = req.body;
+    const userId = req.user.id;
+
+    // Validar parâmetros
+    if (!validation_type || !['confirm', 'dispute'].includes(validation_type)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Tipo de validação inválido. Deve ser "confirm" ou "dispute"'
+      });
+    }
+
+    const { Contribution, Validation, PointOfInterest } = require('../models');
+    
+    // Buscar a contribuição
+    const contribution = await Contribution.findByPk(id, {
+      include: [
+        {
+          model: PointOfInterest,
+          as: 'poi'
+        }
+      ]
+    });
+    
+    if (!contribution) {
+      return res.status(404).json({
+        success: false,
+        error: 'Contribuição não encontrada'
+      });
+    }
+    
+    // Verificar se não expirou
+    if (contribution.expires_at && new Date() > new Date(contribution.expires_at)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Esta contribuição expirou e não pode mais ser validada'
+      });
+    }
+    
+    // Verificar se usuário não está validando sua própria contribuição
+    if (contribution.user_id === userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Não é possível validar sua própria contribuição'
+      });
+    }
+    
+    // Verificar se o usuário já validou esta contribuição
+    const existingValidation = await Validation.findOne({
+      where: {
+        contribution_id: id,
+        user_id: userId
+      }
+    });
+    
+    if (existingValidation) {
+      return res.status(400).json({
+        success: false,
+        error: 'Você já validou esta contribuição anteriormente'
+      });
+    }
+    
+    // Normalizar para ENUM do modelo ('valid' | 'report')
+    const normalizedType = validation_type === 'confirm' ? 'valid' : 'report';
+
+    // Criar a validação
+    const validation = await Validation.create({
+      contribution_id: id,
+      user_id: userId,
+      validation_type: normalizedType,
+      notes: notes || null
+    });
+    
+    // Atualizar contadores e status da contribuição
+    if (validation_type === 'confirm') {
+      contribution.verification_count += 1;
+      
+      // Se atingiu um limiar, marcar como verificada
+      if (contribution.verification_count >= 3 && contribution.processing_status === 'pending') {
+        contribution.processing_status = 'verified';
+        contribution.verified_at = new Date();
+        
+        // Atualizar a confiabilidade do POI
+        if (contribution.poi) {
+          const poi = contribution.poi;
+          const newScore = Math.min(10, poi.reliability_score + 0.5);
+          await poi.update({ reliability_score: newScore });
+        }
+      }
+    } else {
+      contribution.dispute_count += 1;
+      
+      // Se recebeu muitas disputas, marcar como disputada
+      if (contribution.dispute_count >= 2 && contribution.processing_status === 'pending') {
+        contribution.processing_status = 'disputed';
+      }
+    }
+    
+    // Atualizar pontuação de confiabilidade da contribuição
+    const confirmWeight = 1;
+    const disputeWeight = -1.5;
+    const baseScore = 5;
+    
+    contribution.reliability_score = Math.max(0, Math.min(10, 
+      baseScore + (contribution.verification_count * confirmWeight) + (contribution.dispute_count * disputeWeight)
+    ));
+    
+    await contribution.save();
+    
+    return res.json({
+      success: true,
+      data: {
+        validation: { ...validation.toJSON(), validation_type: normalizedType },
+        contribution: {
+          id: contribution.id,
+          verification_count: contribution.verification_count,
+          dispute_count: contribution.dispute_count,
+          processing_status: contribution.processing_status,
+          reliability_score: contribution.reliability_score
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao validar contribuição:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Erro ao validar contribuição'
+    });
+  }
 };
 
 module.exports = {
   addContribution,
   getCurrentContribution,
-  validateContribution,
+  validateContribution: exports.validateContribution,
   reportContribution,
-}; 
+  getRecentContributions,
+};

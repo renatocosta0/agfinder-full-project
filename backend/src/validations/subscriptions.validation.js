@@ -30,9 +30,19 @@ const getUserTransactions = {
   }),
 };
 
+const simulatePaymentDev = {
+  params: Joi.object().keys({
+    reference: Joi.string().required(),
+  }),
+  body: Joi.object().keys({
+    action: Joi.string().valid('complete', 'fail').required(),
+  }),
+};
+
 module.exports = {
   getSubscriptionPlans,
   createSubscription,
   checkSubscriptionStatus,
   getUserTransactions,
-}; 
+  simulatePaymentDev,
+};

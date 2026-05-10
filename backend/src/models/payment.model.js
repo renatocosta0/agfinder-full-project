@@ -3,15 +3,15 @@ module.exports = (sequelize, DataTypes) => {
     'Payment',
     {
       id: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.UUID,
         primaryKey: true,
-        autoIncrement: true,
+        defaultValue: DataTypes.UUIDV4,
       },
       userId: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.UUID,
         allowNull: false,
         references: {
-          model: 'Users',
+          model: 'users',
           key: 'id',
         },
       },
@@ -27,7 +27,7 @@ module.exports = (sequelize, DataTypes) => {
       currency: {
         type: DataTypes.STRING,
         allowNull: false,
-        defaultValue: process.env.PAYMENT_DEFAULT_CURRENCY || 'NGN',
+        defaultValue: process.env.PAYMENT_DEFAULT_CURRENCY || 'AOA',
       },
       description: {
         type: DataTypes.STRING,

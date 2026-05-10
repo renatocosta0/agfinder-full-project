@@ -1,7 +1,7 @@
 const express = require('express');
 const { authenticate, checkSubscription } = require('../middleware/auth.middleware');
 const subscriptionsController = require('../controllers/subscriptions.controller');
-const validate = require('../middleware/validate');
+const validate = require('../middleware/validate.middleware');
 const subscriptionsValidation = require('../validations/subscriptions.validation');
 
 const router = express.Router();
@@ -145,5 +145,46 @@ router.get('/status/:reference', validate(subscriptionsValidation.checkSubscript
  *         description: Server error
  */
 router.get('/transactions', validate(subscriptionsValidation.getUserTransactions), subscriptionsController.getUserTransactions);
+
+/**
+ * @swagger
+ * /api/subscriptions/dev/simulate/{reference}:
+ *   post:
+ *     summary: DEV ONLY - Simulate subscription payment status (complete or fail)
+ *     tags: [Subscriptions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: reference
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Payment reference
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               action:
+ *                 type: string
+ *                 enum: [complete, fail]
+ *     responses:
+ *       200:
+ *         description: Simulation applied successfully
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Not allowed in production
+ *       404:
+ *         description: Subscription transaction not found
+ *       500:
+ *         description: Server error
+ */
+router.post('/dev/simulate/:reference', validate(subscriptionsValidation.simulatePaymentDev), subscriptionsController.simulatePaymentDev);
 
 module.exports = router; 

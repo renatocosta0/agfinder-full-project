@@ -2,126 +2,267 @@ const express = require('express');
 const { authenticate, checkSubscription } = require('../middleware/auth.middleware');
 const poisController = require('../controllers/pois.controller');
 const contributionsController = require('../controllers/contributions.controller');
-const validate = require('../middleware/validate');
+const validate = require('../middleware/validate.middleware');
 const poisValidation = require('../validations/pois.validation');
+const { getPoiUpdatesSchema } = require('../validators/pois.validators');
+const validationMiddleware = require('../middleware/validation.middleware');
 
 const router = express.Router();
 
-// Apply middlewares to all routes
-router.use(authenticate, checkSubscription);
+// Autenticação opcional para algumas rotas
+const optionalAuth = (req, res, next) => {
+  if (req.headers.authorization) {
+    return authenticate(req, res, next);
+  }
+  req.user = null; // Usuário anônimo
+  next();
+};
 
 /**
  * @swagger
  * /api/pois:
  *   get:
- *     summary: Get nearby points of interest
- *     tags: [Points of Interest]
- *     security:
- *       - bearerAuth: []
+ *     summary: Buscar POIs com filtros
+ *     description: Busca POIs com opção de filtro por localização, região ou tipo
+ *     tags: [POIs]
  *     parameters:
  *       - in: query
- *         name: type
- *         schema:
- *           type: string
- *           enum: [atm, gasstation]
- *         description: Type of points of interest
- *       - in: query
  *         name: lat
- *         required: true
  *         schema:
  *           type: number
- *         description: Latitude
+ *         description: Latitude central para busca
  *       - in: query
  *         name: lng
- *         required: true
  *         schema:
  *           type: number
- *         description: Longitude
+ *         description: Longitude central para busca
  *       - in: query
  *         name: radius
  *         schema:
  *           type: number
- *           default: 5
- *         description: Search radius in kilometers
+ *         description: Raio de busca em km (padrão 5km)
  *       - in: query
- *         name: orderBy
+ *         name: type
  *         schema:
  *           type: string
- *           enum: [nearest, recent, most_interactions]
- *           default: nearest
- *         description: Ordering of results
+ *         description: Tipo de POI (atm ou gasstation)
+ *       - in: query
+ *         name: region_id
+ *         schema:
+ *           type: integer
+ *         description: ID da região para filtrar
+ *       - in: query
+ *         name: min_reliability
+ *         schema:
+ *           type: number
+ *         description: Score mínimo de confiabilidade (0-10, padrão 3)
  *       - in: query
  *         name: page
  *         schema:
  *           type: integer
- *           minimum: 1
- *           default: 1
- *         description: Page number
+ *         description: Página atual (paginação)
  *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 20
- *         description: Items per page
- *       - in: query
- *         name: forceRefresh
- *         schema:
- *           type: boolean
- *           default: false
- *         description: Force refresh of data from Google Maps API
+ *         description: Limite de resultados por página
  *     responses:
  *       200:
- *         description: Points of interest retrieved successfully
- *       400:
- *         description: Invalid parameters
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
+ *         description: Lista de POIs encontrados
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: success
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     pois:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           poi_type:
+ *                             type: string
+ *                             enum: [atm, gasstation]
+ *                           google_place_id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           address:
+ *                             type: string
+ *                           latitude:
+ *                             type: number
+ *                           longitude:
+ *                             type: number
+ *                           distance_km:
+ *                             type: number
+ *                             description: Distância em quilômetros ao ponto consultado
+ *                           google_data:
+ *                             type: object
+ *                             description: Dados do Google como objeto (não string)
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         total:
+ *                           type: integer
+ *                         page:
+ *                           type: integer
+ *                         limit:
+ *                           type: integer
+ *                         pages:
+ *                           type: integer
+ *                         hasMore:
+ *                           type: boolean
  */
-router.get('/', validate(poisValidation.getNearbyPOIs), poisController.getNearbyPOIs);
+router.get('/', optionalAuth, validate(poisValidation.getNearbyPOIs), poisController.getNearbyPOIs);
+
+/**
+ * @swagger
+ * /api/pois/search:
+ *   get:
+ *     summary: Buscar POIs por nome/endereço (texto)
+ *     tags: [POIs]
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Texto para buscar em nome ou endereço
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Página (paginação)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Limite por página (máx 50)
+ *       - in: query
+ *         name: include_contributions
+ *         schema:
+ *           type: boolean
+ *         description: Incluir contribuições recentes
+ *     responses:
+ *       200:
+ *         description: Lista de POIs encontrados
+ */
+router.get('/search', optionalAuth, validate(poisValidation.searchPOIs), poisController.searchPOIs);
 
 /**
  * @swagger
  * /api/pois/{id}:
  *   get:
- *     summary: Get a point of interest by ID
- *     tags: [Points of Interest]
- *     security:
- *       - bearerAuth: []
+ *     summary: Detalhes de um POI específico
+ *     description: Obtém detalhes completos de um POI incluindo contribuições recentes
+ *     tags: [POIs]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *         description: Point of interest ID
+ *         description: ID do POI
  *       - in: query
- *         name: refresh
+ *         name: include_contributions
  *         schema:
  *           type: boolean
- *           default: false
- *         description: Force refresh of data from Google Maps API
+ *         description: Incluir contribuições recentes (default true)
+ *       - in: query
+ *         name: include_sync_info
+ *         schema:
+ *           type: boolean
+ *         description: Incluir informações de sincronização (default false)
  *     responses:
  *       200:
- *         description: Point of interest retrieved successfully
- *       401:
- *         description: Unauthorized
+ *         description: Detalhes do POI
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: success
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     poi:
+ *                       $ref: '#/components/schemas/POI'
  *       404:
- *         description: Point of interest not found
- *       500:
- *         description: Server error
+ *         description: POI não encontrado
  */
-router.get('/:id', validate(poisValidation.getPOIById), poisController.getPOIById);
+router.get('/:id', optionalAuth, validate(poisValidation.getPOIById), poisController.getPoiDetails);
+
+/**
+ * @swagger
+ * /api/pois/updates:
+ *   get:
+ *     summary: Obter atualizações recentes de POIs em uma região
+ *     tags: [POIs]
+ *     parameters:
+ *       - in: query
+ *         name: lat
+ *         schema:
+ *           type: number
+ *         description: Latitude do centro da região
+ *       - in: query
+ *         name: lng
+ *         schema:
+ *           type: number
+ *         description: Longitude do centro da região
+ *       - in: query
+ *         name: radius
+ *         schema:
+ *           type: number
+ *         description: Raio em quilômetros (padrão 10)
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [atm, gasstation]
+ *         description: Tipo de POI para filtrar
+ *       - in: query
+ *         name: since
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Buscar atualizações desde esta data/hora
+ *     responses:
+ *       200:
+ *         description: Lista de atualizações de POIs
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/POIUpdate'
+ *                 metadata:
+ *                   $ref: '#/components/schemas/Pagination'
+ *       400:
+ *         description: Parâmetros inválidos
+ *       500:
+ *         description: Erro no servidor
+ */
+router.get('/updates', optionalAuth, validate(getPoiUpdatesSchema), poisController.getPoiUpdates);
 
 /**
  * @swagger
  * /api/pois/{id}/contributions:
  *   post:
- *     summary: Add a contribution to a point of interest
- *     tags: [Contributions]
+ *     summary: Contribuir com informações para um POI
+ *     description: Adiciona uma nova contribuição a um POI existente
+ *     tags: [POIs, Contributions]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -130,7 +271,7 @@ router.get('/:id', validate(poisValidation.getPOIById), poisController.getPOIByI
  *         required: true
  *         schema:
  *           type: string
- *         description: Point of interest ID
+ *         description: ID do POI
  *     requestBody:
  *       required: true
  *       content:
@@ -142,95 +283,89 @@ router.get('/:id', validate(poisValidation.getPOIById), poisController.getPOIByI
  *             properties:
  *               contribution_type:
  *                 type: string
- *                 description: Type of contribution
+ *                 description: Tipo de contribuição (ex. money_paper, gasoline_diesel)
+ *               details:
+ *                 type: object
+ *                 description: Detalhes específicos do tipo de contribuição
  *     responses:
  *       201:
- *         description: Contribution added successfully
+ *         description: Contribuição criada com sucesso
  *       400:
- *         description: Invalid request
- *       401:
- *         description: Unauthorized
+ *         description: Dados inválidos
  *       404:
- *         description: Point of interest not found
- *       500:
- *         description: Server error
+ *         description: POI não encontrado
  */
-router.post('/:id/contributions', contributionsController.addContribution);
+router.post(
+  '/:id/contributions',
+  authenticate,
+  validationMiddleware.validateContribution,
+  contributionsController.addContribution
+);
+
+// Manter compatibilidade com rotas existentes
+// Compat routes removed: use /api/pois and /api/pois/:id endpoints
 
 /**
  * @swagger
- * /api/pois/{id}/contributions/current:
- *   get:
- *     summary: Get current contribution for a point of interest
- *     tags: [Contributions]
+ * /api/pois/sync:
+ *   post:
+ *     summary: Sincronizar POIs armazenados em cache no cliente
+ *     tags: [Points of Interest]
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: Point of interest ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - pois
+ *             properties:
+ *               pois:
+ *                 type: array
+ *                 description: Lista de POIs para sincronizar
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - poi_type
+ *                     - google_place_id
+ *                     - name
+ *                     - address
+ *                     - latitude
+ *                     - longitude
+ *                   properties:
+ *                     poi_type:
+ *                       type: string
+ *                       enum: [atm, gasstation]
+ *                     google_place_id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     address:
+ *                       type: string
+ *                     latitude:
+ *                       type: number
+ *                     longitude:
+ *                       type: number
+ *                     google_data:
+ *                       type: object
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
  *     responses:
  *       200:
- *         description: Current contribution retrieved successfully
+ *         description: POIs sincronizados com sucesso
+ *       400:
+ *         description: Requisição inválida
  *       401:
- *         description: Unauthorized
- *       404:
- *         description: Point of interest not found
+ *         description: Não autorizado
  *       500:
- *         description: Server error
+ *         description: Erro no servidor
  */
-router.get('/:id/contributions/current', contributionsController.getCurrentContribution);
-
-/**
- * @swagger
- * /api/pois/{id}/contributions/history:
- *   get:
- *     summary: Get contribution history for a point of interest
- *     tags: [Contributions]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: Point of interest ID
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *           default: 1
- *         description: Page number
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 20
- *         description: Items per page
- *       - in: query
- *         name: sortBy
- *         schema:
- *           type: string
- *           enum: [created_at:desc, created_at:asc]
- *           default: created_at:desc
- *         description: Field and direction to sort by
- *     responses:
- *       200:
- *         description: Contribution history retrieved successfully
- *       401:
- *         description: Unauthorized
- *       404:
- *         description: Point of interest not found
- *       500:
- *         description: Server error
- */
-router.get('/:id/contributions/history', validate(poisValidation.getPOIContributionHistory), poisController.getPOIContributionHistory);
+router.post('/sync', validate(poisValidation.saveCachedPOIs), poisController.saveCachedPOIs);
 
 module.exports = router; 

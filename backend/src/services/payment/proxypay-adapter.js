@@ -30,7 +30,7 @@ class ProxyPayAdapter extends PaymentAdapter {
           currency,
           entity: this.entity,
           reference: `${subscriptionType.toUpperCase()}-${userId}-${Date.now()}`,
-          expirationTime: 3600, // 1 hour expiration
+          expirationTime: config.proxyPay.expirationSeconds,
         },
         {
           headers: {

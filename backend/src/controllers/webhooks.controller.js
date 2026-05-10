@@ -1,15 +1,40 @@
+const crypto = require('crypto');
 const { SubscriptionTransaction, User, sequelize } = require('../models');
 const logger = require('../utils/logger');
+const config = require('../config/config');
 
 // ProxyPay webhook handler
 const proxyPayWebhook = async (req, res) => {
   const transaction = await sequelize.transaction();
   
   try {
-    // Verify webhook signature (in a real implementation)
-    // This would validate that the request is actually from ProxyPay
+    // Validate webhook signature according to ProxyPay docs:
+    // signature == HexEncode(HMAC-SHA-256(API_KEY, raw HTTP body)) compared with X-Signature header
+    const headerSignature = req.headers['x-signature'];
+    if (!headerSignature) {
+      await transaction.rollback();
+      return res.status(400).json({ status: 'error', message: 'Missing X-Signature header' });
+    }
+    const raw = req.rawBody || Buffer.from(JSON.stringify(req.body || {}));
+    const expected = crypto
+      .createHmac('sha256', config.proxyPay.apiKey || '')
+      .update(raw)
+      .digest('hex');
+    // constant-time comparison
+    const ok = (() => {
+      try {
+        return crypto.timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(String(headerSignature), 'utf8'));
+      } catch (_) {
+        return expected === headerSignature;
+      }
+    })();
+    if (!ok) {
+      await transaction.rollback();
+      logger.warn('ProxyPay webhook signature mismatch');
+      return res.status(400).json({ status: 'error', message: 'Invalid signature' });
+    }
     
-    // Get payment data from the webhook
+    // Get payment data (support both doc-aligned and legacy fields)
     const paymentData = req.body;
     
     // Expected data structure from ProxyPay:
@@ -21,21 +46,26 @@ const proxyPayWebhook = async (req, res) => {
     //   transaction_id: 'pp-tx-123456789'
     // }
     
-    // Find the subscription transaction
-    const subscriptionTx = await SubscriptionTransaction.findOne({
-      where: {
-        reference: paymentData.reference,
-        entity: paymentData.entity,
-        amount: paymentData.amount,
-        status: 'pending',
-      },
-      include: [
-        {
-          model: User,
-          as: 'user',
-        },
-      ],
-    });
+    // Map incoming fields
+    const reference = paymentData.reference || (paymentData.reference_id != null ? String(paymentData.reference_id) : undefined);
+    const entity = paymentData.entity || (paymentData.entity_id != null ? String(paymentData.entity_id) : undefined);
+    const amountValue = paymentData.amount != null ? parseFloat(String(paymentData.amount)) : undefined;
+    const paidAt = paymentData.payment_datetime || paymentData.datetime || new Date().toISOString();
+
+    // Find the subscription transaction: prefer reference; fallback to entity+amount pending
+    let subscriptionTx = null;
+    if (reference) {
+      subscriptionTx = await SubscriptionTransaction.findOne({
+        where: { reference, status: 'pending' },
+        include: [{ model: User, as: 'user' }],
+      });
+    }
+    if (!subscriptionTx && entity && amountValue != null) {
+      subscriptionTx = await SubscriptionTransaction.findOne({
+        where: { entity, amount: amountValue, status: 'pending' },
+        include: [{ model: User, as: 'user' }],
+      });
+    }
     
     if (!subscriptionTx) {
       await transaction.rollback();
@@ -72,7 +102,7 @@ const proxyPayWebhook = async (req, res) => {
     }
     
     // Calculate start and end dates
-    const startDate = new Date();
+    const startDate = new Date(paidAt);
     let endDate = new Date();
     endDate.setDate(endDate.getDate() + days);
     
@@ -115,10 +145,7 @@ const proxyPayWebhook = async (req, res) => {
       reference: subscriptionTx.reference,
     });
     
-    return res.status(200).json({
-      status: 'success',
-      message: 'Payment processed successfully',
-    });
+    return res.status(204).send();
   } catch (error) {
     await transaction.rollback();
     logger.error('ProxyPay webhook error:', error);

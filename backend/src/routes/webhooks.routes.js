@@ -1,5 +1,7 @@
 const express = require('express');
 const webhooksController = require('../controllers/webhooks.controller');
+const validate = require('../middleware/validate.middleware');
+const { proxyPayWebhookSchema } = require('../validators/webhooks.validators');
 
 const router = express.Router();
 
@@ -48,6 +50,16 @@ const router = express.Router();
  *       500:
  *         description: Server error
  */
-router.post('/proxypay', webhooksController.proxyPayWebhook);
+// Use express.json with verify to capture raw body for HMAC signature verification
+router.post(
+  '/proxypay',
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  }),
+  validate(proxyPayWebhookSchema),
+  webhooksController.proxyPayWebhook
+);
 
 module.exports = router; 

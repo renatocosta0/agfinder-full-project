@@ -20,9 +20,11 @@ class FakePaymentAdapter extends PaymentAdapter {
     // Generate fake reference
     const reference = `FAKE-${uuidv4().substring(0, 8).toUpperCase()}`;
     
-    // Calculate expiry date (expires in 1 hour)
+    // Calculate expiry date using configurable minutes
+    const config = require('../../config/config');
+    const minutes = config.payment.fakeExpirationMinutes || 60;
     const expiryDate = new Date();
-    expiryDate.setHours(expiryDate.getHours() + 1);
+    expiryDate.setMinutes(expiryDate.getMinutes() + minutes);
     
     // Create fake payment order
     const paymentOrder = {

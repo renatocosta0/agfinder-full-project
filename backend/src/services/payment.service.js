@@ -20,7 +20,7 @@ const createPayment = async (paymentData) => {
       userId: paymentData.userId,
       subscriptionType: paymentData.type || 'standard',
       amount: paymentData.amount,
-      currency: paymentData.currency || process.env.PAYMENT_DEFAULT_CURRENCY || 'NGN'
+      currency: paymentData.currency || process.env.PAYMENT_DEFAULT_CURRENCY || 'AOA'
     });
     
     // Store payment in database
@@ -63,9 +63,17 @@ const verifyPayment = async (reference) => {
     
     // Verify payment through the adapter
     const verificationResult = await adapter.verifyPayment(reference);
-    
+
+    // Map adapter status to model enum
+    const statusMap = {
+      completed: 'successful',
+      pending: 'pending',
+      failed: 'failed',
+    };
+    const mappedStatus = statusMap[verificationResult.status] || 'pending';
+
     // Update payment status in database
-    payment.status = verificationResult.status;
+    payment.status = mappedStatus;
     payment.verifiedAt = verificationResult.status === 'completed' ? new Date() : null;
     await payment.save();
     

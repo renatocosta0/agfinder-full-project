@@ -1,75 +1,63 @@
 const dotenv = require('dotenv');
 
+// Carregar variáveis de ambiente
 dotenv.config();
 
-// Helper para verificar se o SSL deve ser habilitado
-const shouldUseSSL = process.env.SSL_ENABLED === 'true';
-
-module.exports = {
-  development: {
+// Verificar se existe DATABASE_URL
+if (process.env.DATABASE_URL) {
+  // Usar DATABASE_URL diretamente
+  module.exports = {
     url: process.env.DATABASE_URL,
     dialect: 'postgres',
-    logging: false,
-    define: {
-      underscored: true,
-      timestamps: true,
-    },
+    logging: process.env.NODE_ENV === 'development',
     dialectOptions: {
-      useUTC: false,
-      // Adiciona SSL apenas se habilitado 
-      ...(shouldUseSSL && {
-        ssl: {
-          require: true,
-          rejectUnauthorized: false,
-        }
-      })
+      ssl: process.env.DB_SSL === 'true' ? {
+        require: true,
+        rejectUnauthorized: false,
+      } : undefined,
     },
-    timezone: 'Africa/Luanda', // Angola timezone
-  },
-  test: {
-    url: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL,
-    dialect: 'postgres',
-    logging: false,
-    define: {
-      underscored: true,
-      timestamps: true,
-    },
-    dialectOptions: {
-      useUTC: false,
-      // Adiciona SSL apenas se habilitado
-      ...(shouldUseSSL && {
-        ssl: {
-          require: true,
-          rejectUnauthorized: false,
-        }
-      })
-    },
-    timezone: 'Africa/Luanda',
-  },
-  production: {
-    url: process.env.DATABASE_URL,
-    dialect: 'postgres',
-    logging: false,
-    define: {
-      underscored: true,
-      timestamps: true,
-    },
-    dialectOptions: {
-      useUTC: false,
-      // Adiciona SSL apenas se habilitado
-      ...(shouldUseSSL && {
-        ssl: {
-          require: true,
-          rejectUnauthorized: false,
-        }
-      })
-    },
-    timezone: 'Africa/Luanda',
     pool: {
-      max: parseInt(process.env.DB_POOL_MAX, 10) || 20,
+      max: parseInt(process.env.DB_POOL_MAX, 10) || 5,
       min: 0,
       acquire: 30000,
-      idle: 10000
+      idle: 10000,
     },
-  },
-}; 
+  };
+} else {
+  // Fallback para configuração individual de parâmetros
+  const dialect = process.env.DB_DIALECT || 'postgres';
+  const config = {
+    dialect,
+    logging: process.env.NODE_ENV === 'development',
+  };
+
+  // Configuração específica para SQLite
+  if (dialect === 'sqlite') {
+    config.storage = process.env.DB_STORAGE || ':memory:';
+  } else {
+    // Configuração para PostgreSQL ou outro banco de dados SQL
+    config.host = process.env.DB_HOST || 'localhost';
+    config.port = parseInt(process.env.DB_PORT, 10) || 5432;
+    config.database = process.env.DB_NAME || 'agfinder';
+    config.username = process.env.DB_USER || 'postgres';
+    config.password = process.env.DB_PASSWORD || '';
+    
+    // Configurações adicionais para PostgreSQL
+    config.dialectOptions = {
+      ssl: process.env.DB_SSL === 'true' ? {
+        require: true,
+        rejectUnauthorized: false,
+      } : undefined,
+    };
+    
+    // Pool de conexões
+    config.pool = {
+      max: parseInt(process.env.DB_POOL_MAX, 10) || 5,
+      min: 0,
+      acquire: 30000,
+      idle: 10000,
+    };
+  }
+
+  module.exports = config;
+} 
