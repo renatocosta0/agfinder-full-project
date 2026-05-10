@@ -41,7 +41,7 @@ function initRedisClient() {
       if (!parsed.port) parsed.port = '6379';
       const client = new Redis(process.env.REDIS_URL, {
         maxRetriesPerRequest: null,
-        enableOfflineQueue: false,
+        enableOfflineQueue: true,
         lazyConnect: true,
       });
       client.on('connect', () => {
@@ -73,7 +73,7 @@ function initRedisClient() {
         password: process.env.REDIS_PASSWORD || undefined,
         db: parseInt(process.env.REDIS_DB || '0', 10),
         maxRetriesPerRequest: null,
-        enableOfflineQueue: false,
+        enableOfflineQueue: true,
         lazyConnect: true,
         retryStrategy: (times) => {
           const delay = Math.min(times * 100, 3000);

@@ -47,7 +47,7 @@ if (process.env.REDIS_URL || process.env.REDIS_HOST) {
       if (!parsed.port) parsed.port = '6379';
       redisClient = new Redis(process.env.REDIS_URL, {
         maxRetriesPerRequest: null,
-        enableOfflineQueue: false,
+        enableOfflineQueue: true,
         lazyConnect: true,
       });
     } else {
@@ -66,7 +66,7 @@ if (process.env.REDIS_URL || process.env.REDIS_HOST) {
         },
         connectTimeout: 10000,
         maxRetriesPerRequest: null,
-        enableOfflineQueue: false,
+        enableOfflineQueue: true,
         lazyConnect: true,
       });
     }
@@ -156,11 +156,16 @@ function getBaseConfig() {
   };
 
   // Use Redis store if connection is available, otherwise use memory store
-  if (!useMemoryStore) {
+  if (!useMemoryStore && redisClient && redisClient.status === 'ready') {
     try {
       config.store = new RedisStore({
         // The RedisStore v4 requires sendCommand with ioredis v5
-        sendCommand: (...args) => redisClient.call(...args),
+        sendCommand: async (...args) => {
+          if (!redisClient || redisClient.status !== 'ready') {
+            throw new Error('Redis not ready');
+          }
+          return redisClient.call(...args);
+        },
         prefix: CONFIG.redis.prefix,
         // Optional: Keys expire after windowMs
         expiry: CONFIG.redis.expiry,
