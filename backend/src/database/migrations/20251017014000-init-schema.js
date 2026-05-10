@@ -2,6 +2,9 @@
 
 module.exports = {
   async up(queryInterface, Sequelize) {
+    // Habilitar extensão uuid-ossp (necessária no Render e alguns Postgres managed)
+    await queryInterface.sequelize.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
+
     // users (UUID PK)
     await queryInterface.createTable("users", {
       id: { type: Sequelize.UUID, primaryKey: true, defaultValue: Sequelize.literal("uuid_generate_v4()") },
