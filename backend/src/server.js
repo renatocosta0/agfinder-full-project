@@ -21,6 +21,7 @@ dotenv.config();
 
 // Initialize express app
 const app = express();
+app.set('trust proxy', 1); // Required for correct IP behind Render proxy
 const PORT = process.env.PORT || 3000;
 
 // Funções para a configuração de segurança
