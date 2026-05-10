@@ -12,27 +12,68 @@ const { CACHE_CONFIG } = require('../config/maps.config');
 const gzipAsync = promisify(zlib.gzip);
 const gunzipAsync = promisify(zlib.gunzip);
 
-// Initialize Redis client
-const redisClient = new Redis({
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379', 10),
-  password: process.env.REDIS_PASSWORD || '',
-  db: parseInt(process.env.REDIS_DB || '0', 10),
-  retryStrategy: (times) => {
-    const delay = Math.min(times * 100, 3000);
-    logger.info(`Redis connection retry in ${delay}ms (attempt ${times})`);
-    return delay;
+// Initialize Redis client (optional — falls back to memory-only if Redis is not configured)
+let redisClient;
+const hasRedisConfig = process.env.REDIS_URL || process.env.REDIS_HOST;
+
+if (hasRedisConfig) {
+  try {
+    redisClient = process.env.REDIS_URL
+      ? new Redis(process.env.REDIS_URL)
+      : new Redis({
+        host: process.env.REDIS_HOST,
+        port: parseInt(process.env.REDIS_PORT || '6379', 10),
+        password: process.env.REDIS_PASSWORD || undefined,
+        db: parseInt(process.env.REDIS_DB || '0', 10),
+        retryStrategy: (times) => {
+          const delay = Math.min(times * 100, 3000);
+          logger.info(`Redis connection retry in ${delay}ms (attempt ${times})`);
+          return delay;
+        }
+      });
+
+    redisClient.on('connect', () => {
+      logger.info('Connected to Redis server');
+    });
+
+    redisClient.on('error', (error) => {
+      logger.error('Redis connection error:', error.message || error);
+    });
+  } catch (e) {
+    logger.warn('Failed to initialize Redis client, using memory cache only:', e.message || e);
+    redisClient = {
+      get: async () => null,
+      set: async () => 'OK',
+      setex: async () => 'OK',
+      del: async () => 0,
+      keys: async () => [],
+      ttl: async () => -1,
+      expire: async () => 1,
+      hIncrBy: async () => 1,
+      hGet: async () => null,
+      hSet: async () => 1,
+      hGetAll: async () => ({}),
+      hDel: async () => 0,
+    };
   }
-});
-
-// Setup Redis events
-redisClient.on('connect', () => {
-  logger.info('Connected to Redis server');
-});
-
-redisClient.on('error', (error) => {
-  logger.error('Redis connection error:', error);
-});
+} else {
+  logger.info('Redis not configured (REDIS_URL/REDIS_HOST missing). Using memory cache only.');
+  // Dummy client so downstream consumers don't crash
+  redisClient = {
+    get: async () => null,
+    set: async () => 'OK',
+    setex: async () => 'OK',
+    del: async () => 0,
+    keys: async () => [],
+    ttl: async () => -1,
+    expire: async () => 1,
+    hIncrBy: async () => 1,
+    hGet: async () => null,
+    hSet: async () => 1,
+    hGetAll: async () => ({}),
+    hDel: async () => 0,
+  };
+}
 
 // Also maintain a memory cache for ultra-fast access to frequent items
 const memoryCache = new Map();
@@ -50,11 +91,11 @@ async function set(key, value, ttl, skipMemCache = false) {
   try {
     // Prepare data
     const valueStr = JSON.stringify(value);
-    
+
     // Determine if compression should be used
-    const shouldCompress = CACHE_CONFIG.compression.enabled && 
-                          valueStr.length > CACHE_CONFIG.compression.threshold;
-    
+    const shouldCompress = CACHE_CONFIG.compression.enabled &&
+      valueStr.length > CACHE_CONFIG.compression.threshold;
+
     // Create cache item wrapper
     const cacheItem = {
       data: value,
@@ -63,31 +104,33 @@ async function set(key, value, ttl, skipMemCache = false) {
         compressed: shouldCompress,
       }
     };
-    
+
     let dataToStore = JSON.stringify(cacheItem);
-    
+
     // Compress if needed
     if (shouldCompress) {
       const compressedData = await gzipAsync(dataToStore);
       dataToStore = compressedData.toString('base64');
-      
+
       logger.debug(`Compressed cache data for ${key}: ${valueStr.length} -> ${dataToStore.length} bytes`);
     }
-    
+
     // Store in Redis
-    if (ttl) {
-      await redisClient.setex(key, ttl, dataToStore);
-    } else {
-      await redisClient.set(key, dataToStore);
+    if (redisClient) {
+      if (ttl) {
+        await redisClient.setex(key, ttl, dataToStore);
+      } else {
+        await redisClient.set(key, dataToStore);
+      }
     }
-    
+
     // Also store in memory cache if not too big
     if (!skipMemCache && valueStr.length < 10000) {
       memoryCache.set(key, cacheItem);
-      
+
       if (ttl) {
         memoryCacheTTL.set(key, Date.now() + (ttl * 1000));
-        
+
         // Set up automatic cleanup after TTL
         setTimeout(() => {
           memoryCache.delete(key);
@@ -95,7 +138,7 @@ async function set(key, value, ttl, skipMemCache = false) {
         }, ttl * 1000);
       }
     }
-    
+
     return true;
   } catch (error) {
     logger.error(`Error setting cache key ${key}:`, error);
@@ -114,7 +157,7 @@ async function get(key) {
     if (memoryCache.has(key)) {
       const now = Date.now();
       const expiry = memoryCacheTTL.get(key);
-      
+
       // Check if expired in memory cache
       if (!expiry || now < expiry) {
         const cachedItem = memoryCache.get(key);
@@ -126,18 +169,21 @@ async function get(key) {
         memoryCacheTTL.delete(key);
       }
     }
-    
+
     // Try Redis cache
+    if (!redisClient) {
+      return null;
+    }
     const data = await redisClient.get(key);
     if (!data) {
       return null;
     }
-    
+
     logger.debug(`Redis cache hit for ${key}`);
-    
+
     // Parse cached item
     let cachedItem;
-    
+
     try {
       // Try to parse as regular JSON first
       cachedItem = JSON.parse(data);
@@ -151,20 +197,20 @@ async function get(key) {
         return null;
       }
     }
-    
+
     // Store in memory cache for faster access next time
     if (cachedItem && cachedItem.data) {
       // Get TTL from Redis
-      const ttl = await redisClient.ttl(key);
-      
+      const ttl = redisClient ? await redisClient.ttl(key) : -1;
+
       if (ttl > 0) {
         memoryCache.set(key, cachedItem);
         memoryCacheTTL.set(key, Date.now() + (ttl * 1000));
       }
-      
+
       return cachedItem.data;
     }
-    
+
     return null;
   } catch (error) {
     logger.error(`Error getting cache key ${key}:`, error);
@@ -182,10 +228,12 @@ async function del(key) {
     // Remove from memory cache
     memoryCache.delete(key);
     memoryCacheTTL.delete(key);
-    
+
     // Remove from Redis
-    await redisClient.del(key);
-    
+    if (redisClient) {
+      await redisClient.del(key);
+    }
+
     return true;
   } catch (error) {
     logger.error(`Error deleting cache key ${key}:`, error);
@@ -203,7 +251,7 @@ async function del(key) {
 function calculateGeoTTL(lat, lng, resultsCount) {
   // Base TTL varies by density
   let baseTTL;
-  
+
   if (resultsCount > 20) {
     // High density area
     baseTTL = CACHE_CONFIG.ttl.highDensity;
@@ -214,16 +262,16 @@ function calculateGeoTTL(lat, lng, resultsCount) {
     // Low density area
     baseTTL = CACHE_CONFIG.ttl.lowDensity;
   }
-  
+
   // Luanda city center has faster-changing data, reduce TTL
-  const isLuandaCenter = 
+  const isLuandaCenter =
     lat > -8.85 && lat < -8.8 &&
     lng > 13.22 && lng < 13.25;
-    
+
   if (isLuandaCenter) {
     return Math.floor(baseTTL * 0.5); // 50% TTL for city center
   }
-  
+
   return baseTTL;
 }
 
@@ -235,21 +283,26 @@ function calculateGeoTTL(lat, lng, resultsCount) {
 async function deleteByPattern(pattern) {
   try {
     // Find keys matching pattern
+    if (!redisClient) {
+      return 0;
+    }
     const keys = await redisClient.keys(pattern);
-    
+
     if (keys.length === 0) {
       return 0;
     }
-    
+
     // Delete keys from Redis
-    await redisClient.del(...keys);
-    
+    if (redisClient) {
+      await redisClient.del(...keys);
+    }
+
     // Also delete from memory cache
     keys.forEach(key => {
       memoryCache.delete(key);
       memoryCacheTTL.delete(key);
     });
-    
+
     logger.info(`Deleted ${keys.length} cache keys matching pattern: ${pattern}`);
     return keys.length;
   } catch (error) {
@@ -266,36 +319,36 @@ async function deleteByPattern(pattern) {
  * @returns {Promise<number>} Number of cache entries invalidated
  */
 async function invalidateRegion(lat, lng, radiusKm) {
-try {
-  // Create patterns for different radius values
-  const patterns = [];
+  try {
+    // Create patterns for different radius values
+    const patterns = [];
 
-  // Round coordinates to different precision levels to match cache keys
-  // geoHashForCaching may use precision up to 7 depending on radius
-  const precisions = [1, 2, 3, 4, 5, 6, 7];
+    // Round coordinates to different precision levels to match cache keys
+    // geoHashForCaching may use precision up to 7 depending on radius
+    const precisions = [1, 2, 3, 4, 5, 6, 7];
 
-  for (const precision of precisions) {
-    const latRounded = lat.toFixed(precision);
-    const lngRounded = lng.toFixed(precision);
-    // Match keys generated by places.service: `pois:db:${type}:${lat_lng_${radius}km}:p${page}:l${limit}`
-    patterns.push(`pois:db:*:${latRounded}_${lngRounded}_*`);
-    // Fallback for any other namespaces under pois:
-    patterns.push(`pois:*:${latRounded}_${lngRounded}_*`);
+    for (const precision of precisions) {
+      const latRounded = lat.toFixed(precision);
+      const lngRounded = lng.toFixed(precision);
+      // Match keys generated by places.service: `pois:db:${type}:${lat_lng_${radius}km}:p${page}:l${limit}`
+      patterns.push(`pois:db:*:${latRounded}_${lngRounded}_*`);
+      // Fallback for any other namespaces under pois:
+      patterns.push(`pois:*:${latRounded}_${lngRounded}_*`);
+    }
+
+    // Delete all matching keys
+    let totalDeleted = 0;
+    for (const pattern of patterns) {
+      const deleted = await deleteByPattern(pattern);
+      totalDeleted += deleted;
+    }
+
+    logger.info(`Invalidated ${totalDeleted} POI cache entries for region around ${lat},${lng}`);
+    return totalDeleted;
+  } catch (error) {
+    logger.error(`Error invalidating region cache:`, error);
+    return 0;
   }
-
-  // Delete all matching keys
-  let totalDeleted = 0;
-  for (const pattern of patterns) {
-    const deleted = await deleteByPattern(pattern);
-    totalDeleted += deleted;
-  }
-
-  logger.info(`Invalidated ${totalDeleted} POI cache entries for region around ${lat},${lng}`);
-  return totalDeleted;
-} catch (error) {
-  logger.error(`Error invalidating region cache:`, error);
-  return 0;
-}
 
 }
 
@@ -308,9 +361,9 @@ async function prefetchPopularRegions() {
   if (!CACHE_CONFIG.prefetch.enabled) {
     return;
   }
-  
+
   logger.info(`Starting prefetch for ${CACHE_CONFIG.prefetch.popularRegions.length} popular regions`);
-  
+
   // Implementation would call places service to fetch and cache data
   // This is just a placeholder - actual implementation would depend on placesService
 }
