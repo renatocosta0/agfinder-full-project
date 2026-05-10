@@ -2,6 +2,15 @@ const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const logger = require('../utils/logger');
 
+function parseAdminEmails() {
+  const raw = process.env.ADMIN_EMAILS;
+  if (!raw || typeof raw !== 'string') return [];
+  return raw
+    .split(',')
+    .map((s) => String(s || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
 // Middleware to authenticate JWT tokens
 const authenticate = async (req, res, next) => {
   try {
@@ -70,7 +79,7 @@ const authenticate = async (req, res, next) => {
         message: 'Token expired.',
       });
     }
-    
+
     return res.status(500).json({
       status: 'error',
       message: 'Authentication error.',
@@ -129,7 +138,9 @@ const checkSubscription = async (req, res, next) => {
 const isAdmin = async (req, res, next) => {
   try {
     const { user } = req;
-    if (!user || !user.is_admin) {
+    const adminEmails = parseAdminEmails();
+    const isEnvAdmin = !!(user?.email && adminEmails.includes(String(user.email).toLowerCase()));
+    if (!user || (!user.is_admin && !isEnvAdmin)) {
       return res.status(403).json({
         status: 'error',
         message: 'Admin access required.',
