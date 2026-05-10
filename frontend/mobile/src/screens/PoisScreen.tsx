@@ -343,8 +343,8 @@ export default function PoisScreen() {
               }
               try {
                 await recordUserLocation({
-                  latitude: browserPos.lat,
-                  longitude: browserPos.lng,
+                  lat: browserPos.lat,
+                  lng: browserPos.lng,
                   accuracy: browserPos.accuracy ?? undefined,
                   source: 'app',
                   recordedAt: new Date().toISOString(),
@@ -380,8 +380,8 @@ export default function PoisScreen() {
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         try {
           await recordUserLocation({
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
             accuracy: pos.coords.accuracy ?? undefined,
             source: 'app',
             recordedAt: new Date().toISOString(),

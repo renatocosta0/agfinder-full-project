@@ -1,8 +1,8 @@
 import { api } from './api';
 
 export interface RecordUserLocationBody {
-  latitude: number;
-  longitude: number;
+  lat: number;
+  lng: number;
   accuracy?: number;
   source?: string;
   recordedAt?: string; // ISO string
