@@ -59,10 +59,18 @@ const register = async (req, res) => {
     });
 
     // Gerar JWT
+    if (!process.env.JWT_SECRET) {
+      logger.error('JWT_SECRET is not configured');
+      return res.status(500).json({
+        status: 'error',
+        message: 'Erro ao registrar usuário',
+      });
+    }
+    const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '7d';
     const token = jwt.sign(
       { id: user.id, email: user.email },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN }
+      { expiresIn: jwtExpiresIn }
     );
 
     logger.info(`Novo usuário registrado: ${email}`);
@@ -156,10 +164,18 @@ const login = async (req, res) => {
     }
 
     // Gerar JWT
+    if (!process.env.JWT_SECRET) {
+      logger.error('JWT_SECRET is not configured');
+      return res.status(500).json({
+        status: 'error',
+        message: 'Erro ao fazer login',
+      });
+    }
+    const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '7d';
     const token = jwt.sign(
       { id: user.id, email: user.email },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN }
+      { expiresIn: jwtExpiresIn }
     );
 
     logger.info(`Usuário logado: ${email}`);
