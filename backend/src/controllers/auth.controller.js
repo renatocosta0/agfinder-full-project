@@ -56,7 +56,6 @@ const register = async (req, res) => {
       password_hash: hash,
       salt,
       bonus_points: 0,
-      subscription_type: 'none',
     });
 
     // Gerar JWT
@@ -177,8 +176,8 @@ const login = async (req, res) => {
           email: user.email,
           profile_picture: user.profile_picture,
           bonus_points: user.bonus_points,
-          subscription_type: user.subscription_type,
-          subscription_end: user.subscription_end,
+          subscription_type: user.has_active_subscription ? 'active' : 'none',
+          subscription_end: user.current_subscription_end,
           is_banned: user.is_banned,
         },
       },
