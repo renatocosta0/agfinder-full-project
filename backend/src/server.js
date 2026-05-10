@@ -93,12 +93,18 @@ const getCorsOptions = (isDevelopment = false) => {
       allowedHeaders: ['Content-Type', 'Authorization']
     };
   } else {
+    const extraOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
     return {
       origin: [
         'https://agfinder.app',
         'https://www.agfinder.app',
         'https://app.agfinder.app',
-        /\.agfinder\.app$/
+        /\.agfinder\.app$/,
+        ...extraOrigins,
       ],
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],

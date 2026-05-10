@@ -16,6 +16,6 @@ export const API_BASE_URL =
   Platform.select({
     ios: `http://${LAN_IP}:${PORT}`,
     android: `http://10.0.2.2:${PORT}`,
-    web: `http://localhost:${PORT}`,
+    web: `https://agfinder-api.onrender.com/api`,
     default: `http://${LAN_IP}:${PORT}`,
   })!;
