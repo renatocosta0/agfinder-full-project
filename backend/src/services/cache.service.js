@@ -39,12 +39,20 @@ function initRedisClient() {
     try {
       const parsed = new URL(process.env.REDIS_URL);
       if (!parsed.port) parsed.port = '6379';
-      const client = new Redis(process.env.REDIS_URL);
+      const client = new Redis(process.env.REDIS_URL, {
+        maxRetriesPerRequest: null,
+        enableOfflineQueue: false,
+        lazyConnect: true,
+      });
       client.on('connect', () => {
         logger.info('Connected to Redis server');
       });
       client.on('error', (error) => {
         logger.error('Redis connection error:', error.message || error);
+      });
+
+      client.connect().catch((e) => {
+        logger.warn('Redis initial connect failed, using memory cache only:', e.message || e);
       });
       return client;
     } catch (e) {
@@ -64,6 +72,9 @@ function initRedisClient() {
         port,
         password: process.env.REDIS_PASSWORD || undefined,
         db: parseInt(process.env.REDIS_DB || '0', 10),
+        maxRetriesPerRequest: null,
+        enableOfflineQueue: false,
+        lazyConnect: true,
         retryStrategy: (times) => {
           const delay = Math.min(times * 100, 3000);
           logger.info(`Redis connection retry in ${delay}ms (attempt ${times})`);
@@ -75,6 +86,10 @@ function initRedisClient() {
       });
       client.on('error', (error) => {
         logger.error('Redis connection error:', error.message || error);
+      });
+
+      client.connect().catch((e) => {
+        logger.warn('Redis initial connect failed, using memory cache only:', e.message || e);
       });
       return client;
     } catch (e) {

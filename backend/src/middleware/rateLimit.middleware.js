@@ -45,7 +45,11 @@ if (process.env.REDIS_URL || process.env.REDIS_HOST) {
     if (process.env.REDIS_URL) {
       const parsed = new URL(process.env.REDIS_URL);
       if (!parsed.port) parsed.port = '6379';
-      redisClient = new Redis(process.env.REDIS_URL);
+      redisClient = new Redis(process.env.REDIS_URL, {
+        maxRetriesPerRequest: null,
+        enableOfflineQueue: false,
+        lazyConnect: true,
+      });
     } else {
       const port = parseInt(process.env.REDIS_PORT || '6379', 10);
       if (Number.isNaN(port) || port < 0 || port > 65535) {
@@ -61,7 +65,9 @@ if (process.env.REDIS_URL || process.env.REDIS_HOST) {
           return delay;
         },
         connectTimeout: 10000,
-        maxRetriesPerRequest: 3
+        maxRetriesPerRequest: null,
+        enableOfflineQueue: false,
+        lazyConnect: true,
       });
     }
     useMemoryStore = false;
@@ -76,6 +82,26 @@ if (process.env.REDIS_URL || process.env.REDIS_HOST) {
 
     redisClient.on('connect', () => {
       logger.info('Redis rate limiter connected successfully');
+    });
+
+    redisClient.on('end', () => {
+      if (!useMemoryStore) {
+        logger.warn('Redis connection ended, falling back to memory store for rate limiting');
+        useMemoryStore = true;
+      }
+    });
+
+    redisClient.on('close', () => {
+      if (!useMemoryStore) {
+        logger.warn('Redis connection closed, falling back to memory store for rate limiting');
+        useMemoryStore = true;
+      }
+    });
+
+    // Start connection in background (but don't block startup)
+    redisClient.connect().catch((e) => {
+      logger.warn('Redis rate limiter initial connect failed, using memory store:', e.message || e);
+      useMemoryStore = true;
     });
   } catch (e) {
     logger.warn('Failed to initialize Redis for rate limiting, using memory store:', e.message || e);
