@@ -104,6 +104,10 @@ function initRedisClient() {
 
 redisClient = initRedisClient();
 
+function isRedisReady() {
+  return !!(redisClient && typeof redisClient === 'object' && redisClient.status === 'ready');
+}
+
 // Also maintain a memory cache for ultra-fast access to frequent items
 const memoryCache = new Map();
 const memoryCacheTTL = new Map();
@@ -145,7 +149,7 @@ async function set(key, value, ttl, skipMemCache = false) {
     }
 
     // Store in Redis
-    if (redisClient) {
+    if (isRedisReady()) {
       if (ttl) {
         await redisClient.setex(key, ttl, dataToStore);
       } else {
@@ -200,7 +204,7 @@ async function get(key) {
     }
 
     // Try Redis cache
-    if (!redisClient) {
+    if (!isRedisReady()) {
       return null;
     }
     const data = await redisClient.get(key);
@@ -230,7 +234,7 @@ async function get(key) {
     // Store in memory cache for faster access next time
     if (cachedItem && cachedItem.data) {
       // Get TTL from Redis
-      const ttl = redisClient ? await redisClient.ttl(key) : -1;
+      const ttl = isRedisReady() ? await redisClient.ttl(key) : -1;
 
       if (ttl > 0) {
         memoryCache.set(key, cachedItem);
@@ -259,7 +263,7 @@ async function del(key) {
     memoryCacheTTL.delete(key);
 
     // Remove from Redis
-    if (redisClient) {
+    if (isRedisReady()) {
       await redisClient.del(key);
     }
 
