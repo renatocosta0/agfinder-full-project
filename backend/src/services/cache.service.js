@@ -112,6 +112,14 @@ function isRedisReady() {
 const memoryCache = new Map();
 const memoryCacheTTL = new Map();
 
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function globToRegExp(pattern) {
+  return new RegExp(`^${escapeRegExp(pattern).replace(/\\\*/g, '.*')}$`);
+}
+
 /**
  * Set a value in cache with optional compression
  * @param {string} key - Cache key
@@ -315,29 +323,60 @@ function calculateGeoTTL(lat, lng, resultsCount) {
  */
 async function deleteByPattern(pattern) {
   try {
-    // Find keys matching pattern
-    if (!redisClient) {
+    const patternRegex = globToRegExp(pattern);
+
+    // Always delete from memory cache (fast, no external deps)
+    let memDeleted = 0;
+    for (const key of memoryCache.keys()) {
+      if (patternRegex.test(key)) {
+        memoryCache.delete(key);
+        memoryCacheTTL.delete(key);
+        memDeleted += 1;
+      }
+    }
+
+    // If Redis isn't ready, don't attempt network operations.
+    if (!isRedisReady()) {
+      if (memDeleted > 0) {
+        logger.info(`Deleted ${memDeleted} memory cache keys matching pattern: ${pattern}`);
+      }
       return 0;
     }
-    const keys = await redisClient.keys(pattern);
 
-    if (keys.length === 0) {
-      return 0;
+    // Use SCAN instead of KEYS to avoid blocking Redis.
+    let cursor = '0';
+    let redisDeleted = 0;
+    const batch = [];
+    const flushBatch = async () => {
+      if (batch.length === 0) return;
+      await redisClient.del(...batch);
+      redisDeleted += batch.length;
+      batch.length = 0;
+    };
+
+    do {
+      // eslint-disable-next-line no-await-in-loop
+      const [nextCursor, keys] = await redisClient.scan(cursor, 'MATCH', pattern, 'COUNT', 500);
+      cursor = nextCursor;
+
+      if (Array.isArray(keys) && keys.length > 0) {
+        for (const key of keys) {
+          batch.push(key);
+          if (batch.length >= 500) {
+            // eslint-disable-next-line no-await-in-loop
+            await flushBatch();
+          }
+        }
+      }
+    } while (cursor !== '0');
+
+    await flushBatch();
+
+    if (redisDeleted > 0) {
+      logger.info(`Deleted ${redisDeleted} Redis cache keys matching pattern: ${pattern}`);
     }
 
-    // Delete keys from Redis
-    if (redisClient) {
-      await redisClient.del(...keys);
-    }
-
-    // Also delete from memory cache
-    keys.forEach(key => {
-      memoryCache.delete(key);
-      memoryCacheTTL.delete(key);
-    });
-
-    logger.info(`Deleted ${keys.length} cache keys matching pattern: ${pattern}`);
-    return keys.length;
+    return redisDeleted;
   } catch (error) {
     logger.error(`Error deleting cache keys by pattern ${pattern}:`, error);
     return 0;
