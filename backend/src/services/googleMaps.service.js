@@ -24,7 +24,7 @@ const { PointOfInterest, sequelize } = require('../models');
  */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const REQUEST_TIMEOUT_MS = 15000;
+const REQUEST_TIMEOUT_MS = 10000;
 
 function withTimeout(promise, ms, label) {
   return Promise.race([
@@ -35,7 +35,7 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
-async function nearbySearchWithRetry(params, maxRetries = 5) {
+async function nearbySearchWithRetry(params, maxRetries = 2) {
   let attempt = 0;
   let delay = 1000;
   // Basic jitter
@@ -78,6 +78,9 @@ async function nearbySearchWithRetry(params, maxRetries = 5) {
 
 const syncRegionPOIs = async (lat, lng, radius, types = undefined) => {
   try {
+    if (!process.env.GOOGLE_MAPS_API_KEY) {
+      throw new Error('GOOGLE_MAPS_API_KEY is not configured');
+    }
     logger.info(`Synchronizing POIs for region: ${lat}, ${lng}, radius: ${radius}km`);
 
     let totalPOIs = 0;
