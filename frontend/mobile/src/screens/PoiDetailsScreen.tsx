@@ -1,28 +1,28 @@
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Image,
   ActivityIndicator,
+  Alert,
+  Image,
+  Linking,
+  Platform,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  Alert,
-  Linking,
-  Platform,
 } from 'react-native';
-import { RootStackParamList } from '../navigation/RootNavigator';
-import { useFocusEffect } from '@react-navigation/native';
-import { getPoiDetails } from '../services/pois';
-import { getSystemConfig } from '../services/system';
-import { useAuth } from '../contexts/AuthContext';
-import { postValidation } from '../services/contributions';
 import ContributionModal, { StatusType as CMStatusType } from '../components/ContributionModal';
 import StatusButtons from '../components/StatusButtons';
-import { computeCountdown, formatSince } from '../utils/time';
+import { useAuth } from '../contexts/AuthContext';
+import { RootStackParamList } from '../navigation/RootNavigator';
+import { postValidation } from '../services/contributions';
+import { getPoiDetails } from '../services/pois';
+import { getSystemConfig } from '../services/system';
 import { emitContribution } from '../utils/events';
+import { computeCountdown, formatSince } from '../utils/time';
 
 type PoiDetailsRouteProp = RouteProp<RootStackParamList, 'PoiDetails'>;
 type PoiDetailsNavigationProp = NativeStackNavigationProp<RootStackParamList, 'PoiDetails'>;
@@ -84,7 +84,7 @@ export default function PoiDetailsScreen() {
       try {
         const cfg = await getSystemConfig();
         if (cfg?.CONTRIBUTION_TTL_MINUTES) setTtlMinutes(Number(cfg.CONTRIBUTION_TTL_MINUTES));
-      } catch {}
+      } catch { }
       await loadPoiDetails();
     };
     load();
@@ -94,7 +94,7 @@ export default function PoiDetailsScreen() {
   useFocusEffect(
     React.useCallback(() => {
       loadPoiDetails(true);
-      return () => {};
+      return () => { };
     }, [poiId])
   );
 
@@ -121,7 +121,7 @@ export default function PoiDetailsScreen() {
       try {
         console.log('PoiDetails route.params:', route.params);
         console.log('PoiDetails raw:', JSON.stringify(raw));
-      } catch {}
+      } catch { }
       let current: any = raw.current_contribution || raw.currentContribution || undefined;
       if (!current) {
         const list: any[] = Array.isArray(raw.contributions) ? raw.contributions : [];
@@ -187,19 +187,19 @@ export default function PoiDetailsScreen() {
         total_interactions: raw.total_interactions,
         current_contribution: current
           ? {
-              id: current.id,
-              contribution_type: (current.contribution_type || current.type) as ContributionType,
-              created_at: current.created_at || current.createdAt,
-              expires_at: new Date(new Date(current.created_at || current.createdAt).getTime() + ttlMinutes * 60000).toISOString(),
-              user: {
-                id: current.user?.id ?? current['user.id'] ?? 'unknown',
-                name: current.user?.full_name || current.user?.name || current['user.name'] || 'User',
-              },
-              validations:
-                current.validations ?? current.validations_count ?? current.verification_count ?? 0,
-              reports:
-                current.reports ?? current.reports_count ?? current.dispute_count ?? 0,
-            }
+            id: current.id,
+            contribution_type: (current.contribution_type || current.type) as ContributionType,
+            created_at: current.created_at || current.createdAt,
+            expires_at: new Date(new Date(current.created_at || current.createdAt).getTime() + ttlMinutes * 60000).toISOString(),
+            user: {
+              id: current.user?.id ?? current['user.id'] ?? 'unknown',
+              name: current.user?.full_name || current.user?.name || current['user.name'] || 'User',
+            },
+            validations:
+              current.validations ?? current.validations_count ?? current.verification_count ?? 0,
+            reports:
+              current.reports ?? current.reports_count ?? current.dispute_count ?? 0,
+          }
           : undefined,
       };
       // Fallback: use route params if backend didn't return current contribution
@@ -263,7 +263,7 @@ export default function PoiDetailsScreen() {
       ) {
         (mapped.current_contribution as any).is_owner = (raw as any).last_contribution.is_owner as boolean;
       }
-      try { console.log('Mapped current contribution:', mapped.current_contribution); } catch {}
+      try { console.log('Mapped current contribution:', mapped.current_contribution); } catch { }
       setPoi(mapped);
       // Prime countdown/labels immediately
       setTimeout(() => updateCountdown(), 0);
@@ -419,234 +419,222 @@ export default function PoiDetailsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header with back button */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backIcon}>←</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* POI Name */}
-      <View style={styles.nameContainer}>
-        <Text style={styles.poiName} numberOfLines={2} ellipsizeMode="tail">{poi.name}</Text>
-        {poi.address && (
-          <Text style={styles.poiAddress} numberOfLines={1} ellipsizeMode="tail">{poi.address}</Text>
-        )}
-        <TouchableOpacity style={styles.openMapsButton} onPress={handleOpenInMaps}>
-          <View style={styles.openMapsButtonContent}>
-            <Text style={styles.openMapsIcon}>📍</Text>
-            <Text style={styles.openMapsButtonText}>Open in Maps</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
-
-      {/* Main Image */}
-      <View style={styles.imageContainer}>
-        {hasContribution ? (
-          <Image
-            source={getContributionImage((poi.current_contribution!.contribution_type as any) || ((route.params as any).fallbackType as any))}
-            style={styles.mainImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <Image
-            source={poiType === 'gasstation' ? require('../../assets/images/noupdatesgas.png') : require('../../assets/images/noupdates.png')}
-            style={styles.mainImage}
-            resizeMode="cover"
-          />
-        )}
-      </View>
-
-      {/* Status Label */}
-      {!hasContribution ? (
-        <Text style={styles.noUpdatesLabel}>No updates today</Text>
-      ) : (
-        <Text style={styles.updatedLabel}>{elapsedLabel}</Text>
-      )}
-
-      {/* Content Section */}
-      {!hasContribution ? (
-        // State 1: No contribution
-        <View style={styles.contentSection}>
-          <Text style={styles.infoText}>
-            Este {poiType === 'atm' ? 'ATM' : 'posto'} não tem atualizações recentes.
-          </Text>
-          <Text style={styles.infoText}>Selecione o estado atual:</Text>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        contentInsetAdjustmentBehavior={Platform.OS === 'ios' ? 'automatic' : undefined}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header with back button */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Text style={styles.backIcon}>←</Text>
+          </TouchableOpacity>
         </View>
-      ) : isWithinTTL ? (
-        // State 3: Within TTL - show contributor, counts, validation buttons, and banner
-        <>
-          <Text style={styles.infoGivenByText}>
-            Info given by {poi.current_contribution?.is_owner ? 'you' : (poi.current_contribution?.user.name || 'User')}
-          </Text>
-          {(poi.current_contribution?.is_owner || alreadyValidated || (poi.current_contribution?.can_validate === false && !poi.current_contribution?.is_owner)) && (
-            <Text style={styles.cannotValidateText}>
-              {poi.current_contribution?.is_owner
-                ? 'Não é possível validar sua própria contribuição'
-                : 'Você já validou esta contribuição anteriormente'}
-            </Text>
+
+        {/* POI Name */}
+        <View style={styles.nameContainer}>
+          <Text style={styles.poiName} numberOfLines={2} ellipsizeMode="tail">{poi.name}</Text>
+          {poi.address && (
+            <Text style={styles.poiAddress} numberOfLines={1} ellipsizeMode="tail">{poi.address}</Text>
           )}
-          <View style={styles.validationButtonsContainer}>
-            <View style={styles.validationButtonWrapper}>
-              <Text style={styles.validationCount}>({poi.current_contribution?.validations ?? 0})</Text>
-              <TouchableOpacity
-                style={[
-                  styles.validButton,
-                  (poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false) && styles.disabledButton,
-                ]}
-                onPress={() => {
-                  if (!(poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false)) {
-                    setValidationType('valid');
-                    setShowValidationModal(true);
-                  }
-                }}
-                disabled={poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false}
-              >
-                <Text style={styles.validButtonText}>VALID</Text>
-              </TouchableOpacity>
+          <TouchableOpacity style={styles.openMapsButton} onPress={handleOpenInMaps}>
+            <View style={styles.openMapsButtonContent}>
+              <Text style={styles.openMapsIcon}>📍</Text>
+              <Text style={styles.openMapsButtonText}>Open in Maps</Text>
             </View>
-            <View style={styles.validationButtonWrapper}>
-              <Text style={styles.validationCount}>({poi.current_contribution?.reports ?? 0})</Text>
-              <TouchableOpacity
-                style={[
-                  styles.reportButton,
-                  (poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false) && styles.disabledButton,
-                ]}
-                onPress={() => {
-                  if (!(poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false)) {
-                    setValidationType('report');
-                    setShowValidationModal(true);
-                  }
-                }}
-                disabled={poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false}
-              >
-                <Text style={styles.reportButtonText}>REPORT</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          <View style={styles.recentlyUpdatedContainer}>
-            <Text style={styles.recentlyUpdatedText}>
-              Updated recently, check back in {timeUntilNext}
-            </Text>
-          </View>
-        </>
-      ) : (
-        // State 2: Expired - show previous contributions info
-        <View style={styles.contentSection}>
-          <Text style={styles.previousContributionsTitle}>Previous Contributions</Text>
-          <View style={styles.statsRow}>
-            <Text style={styles.statsLabel}>Last contributor:</Text>
-            <Text style={styles.statsValue}>{poi.current_contribution?.user.name}</Text>
-          </View>
-          <View style={styles.statsRow}>
-            <Text style={styles.statsLabel}>Validations:</Text>
-            <Text style={[styles.statsValue, { color: '#34c759' }]}>{poi.current_contribution?.validations ?? 0}</Text>
-          </View>
-          <View style={styles.statsRow}>
-            <Text style={styles.statsLabel}>Reports:</Text>
-            <Text style={[styles.statsValue, { color: '#ff3b30' }]}>{poi.current_contribution?.reports ?? 0}</Text>
-          </View>
-          <Text style={styles.infoText}>
-            Forneça uma nova atualização para este {poiType === 'atm' ? 'ATM' : 'posto'}:
-          </Text>
+          </TouchableOpacity>
         </View>
-      )}
 
-      <ContributionModal
-        visible={showModal}
-        poiId={String(poi.id)}
-        poiType={poiType === 'atm' ? 'atms' : 'gasstations'}
-        initialStatus={selectedStatus}
-        onClose={() => { setShowModal(false); setSelectedStatus(null); }}
-        onAfterSubmit={({ selectedStatus, nowIso }) => {
-          // Map status to contribution type string
-          let contribution_type: ContributionType = 'none';
-          if (poiType === 'atm') {
-            contribution_type = selectedStatus === 'both' ? 'money_paper' : selectedStatus === 'money' ? 'money_only' : selectedStatus === 'paper' ? 'paper_only' : 'none';
-          } else {
-            contribution_type = selectedStatus === 'both' ? 'gasoline_diesel' : selectedStatus === 'money' ? 'gasoline_only' : selectedStatus === 'paper' ? 'diesel_only' : 'none';
-          }
-          // Optimistically update current contribution
-          setPoi((prev) => {
-            if (!prev) return prev;
-            const updated: PoiDetails = {
-              ...prev,
-              current_contribution: {
-                id: prev.current_contribution?.id ?? 'temp',
-                contribution_type,
-                created_at: nowIso,
-                expires_at: nowIso,
-                user: { id: 'me', name: 'You' },
-                validations: 0,
-                reports: 0,
-              },
-            } as any;
-            return updated;
-          });
-          updateCountdown();
-          emitContribution({ poiId, createdAtIso: nowIso });
-          // Refetch with forceRefresh to sync with backend and cache
-          loadPoiDetails(true);
-        }}
-      />
+        {/* Main Image */}
+        <View style={styles.imageContainer}>
+          {hasContribution ? (
+            <Image
+              source={getContributionImage((poi.current_contribution!.contribution_type as any) || ((route.params as any).fallbackType as any))}
+              style={styles.mainImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <Image
+              source={poiType === 'gasstation' ? require('../../assets/images/noupdatesgas.png') : require('../../assets/images/noupdates.png')}
+              style={styles.mainImage}
+              resizeMode="cover"
+            />
+          )}
+        </View>
 
-      {/* Validation Confirmation Modal */}
-      {showValidationModal && (
-        <View style={styles.modalOverlay}>
-          <View style={styles.validationModalContainer}>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => {
-                setShowValidationModal(false);
-                setValidationType(null);
-              }}
-            >
-              <Text style={styles.modalCloseText}>✕</Text>
-            </TouchableOpacity>
-            <View style={[styles.modalIcon, validationType === 'valid' ? styles.validIcon : styles.reportIcon]}>
-              <Text style={styles.modalIconText}>{validationType === 'valid' ? '✓' : '🗑'}</Text>
+        {/* Status Label */}
+        {!hasContribution ? (
+          <Text style={styles.noUpdatesLabel}>No updates today</Text>
+        ) : (
+          <Text style={styles.updatedLabel}>{elapsedLabel}</Text>
+        )}
+
+        {/* Content Section */}
+        {!hasContribution ? (
+          // State 1: No contribution
+          <View style={styles.contentSection}>
+            <Text style={styles.infoText}>
+              Este {poiType === 'atm' ? 'ATM' : 'posto'} não tem atualizações recentes.
+            </Text>
+            <Text style={styles.infoText}>Selecione o estado atual:</Text>
+          </View>
+        ) : isWithinTTL ? (
+          // State 3: Within TTL - show contributor, counts, validation buttons, and banner
+          <>
+            <Text style={styles.infoGivenByText}>
+              Info given by {poi.current_contribution?.is_owner ? 'you' : (poi.current_contribution?.user.name || 'User')}
+            </Text>
+            {(poi.current_contribution?.is_owner || alreadyValidated || (poi.current_contribution?.can_validate === false && !poi.current_contribution?.is_owner)) && (
+              <Text style={styles.cannotValidateText}>
+                {poi.current_contribution?.is_owner
+                  ? 'Não é possível validar sua própria contribuição'
+                  : 'Você já validou esta contribuição anteriormente'}
+              </Text>
+            )}
+            <View style={styles.validationButtonsContainer}>
+              <View style={styles.validationButtonWrapper}>
+                <Text style={styles.validationCount}>({poi.current_contribution?.validations ?? 0})</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.validButton,
+                    (poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false) && styles.disabledButton,
+                  ]}
+                  onPress={() => {
+                    if (!(poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false)) {
+                      setValidationType('valid');
+                      setShowValidationModal(true);
+                    }
+                  }}
+                  disabled={poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false}
+                >
+                  <Text style={styles.validButtonText}>VALID</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.validationButtonWrapper}>
+                <Text style={styles.validationCount}>({poi.current_contribution?.reports ?? 0})</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.reportButton,
+                    (poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false) && styles.disabledButton,
+                  ]}
+                  onPress={() => {
+                    if (!(poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false)) {
+                      setValidationType('report');
+                      setShowValidationModal(true);
+                    }
+                  }}
+                  disabled={poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false}
+                >
+                  <Text style={styles.reportButtonText}>REPORT</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <Text style={styles.validationModalTitle}>
-              {validationType === 'valid' ? 'Validate info' : 'Report info'}
+            <View style={styles.recentlyUpdatedContainer}>
+              <Text style={styles.recentlyUpdatedText}>
+                Updated recently, check back in {timeUntilNext}
+              </Text>
+            </View>
+          </>
+        ) : (
+          // State 2: Expired - show previous contributions info
+          <View style={styles.contentSection}>
+            <Text style={styles.previousContributionsTitle}>Previous Contributions</Text>
+            <View style={styles.statsRow}>
+              <Text style={styles.statsLabel}>Last contributor:</Text>
+              <Text style={styles.statsValue}>{poi.current_contribution?.user.name}</Text>
+            </View>
+            <View style={styles.statsRow}>
+              <Text style={styles.statsLabel}>Validations:</Text>
+              <Text style={[styles.statsValue, { color: '#34c759' }]}>{poi.current_contribution?.validations ?? 0}</Text>
+            </View>
+            <View style={styles.statsRow}>
+              <Text style={styles.statsLabel}>Reports:</Text>
+              <Text style={[styles.statsValue, { color: '#ff3b30' }]}>{poi.current_contribution?.reports ?? 0}</Text>
+            </View>
+            <Text style={styles.infoText}>
+              Forneça uma nova atualização para este {poiType === 'atm' ? 'ATM' : 'posto'}:
             </Text>
-            <Text style={styles.validationModalText}>
-              Are you sure you want to {validationType === 'valid' ? 'validate' : 'report'} this info?{' '}
-              This action cannot be undone.
-            </Text>
-            <TouchableOpacity
-              style={[styles.validationModalButton, validationType === 'valid' ? styles.validateButton : styles.reportModalButton]}
-              onPress={async () => {
-                if (!token) {
-                  Alert.alert('Login required', 'You must be logged in.');
-                  setShowValidationModal(false);
-                  return;
-                }
-                if (!poi?.current_contribution) return;
-                try {
-                  const vt = (validationType === 'valid' ? 'confirm' : 'dispute') as 'confirm' | 'dispute';
-                  await postValidation(poi.current_contribution.id, { validation_type: vt });
+          </View>
+        )}
+
+        <ContributionModal
+          visible={showModal}
+          poiId={String(poi.id)}
+          poiType={poiType === 'atm' ? 'atms' : 'gasstations'}
+          initialStatus={selectedStatus}
+          onClose={() => { setShowModal(false); setSelectedStatus(null); }}
+          onAfterSubmit={({ selectedStatus, nowIso }) => {
+            // Map status to contribution type string
+            let contribution_type: ContributionType = 'none';
+            if (poiType === 'atm') {
+              contribution_type = selectedStatus === 'both' ? 'money_paper' : selectedStatus === 'money' ? 'money_only' : selectedStatus === 'paper' ? 'paper_only' : 'none';
+            } else {
+              contribution_type = selectedStatus === 'both' ? 'gasoline_diesel' : selectedStatus === 'money' ? 'gasoline_only' : selectedStatus === 'paper' ? 'diesel_only' : 'none';
+            }
+            // Optimistically update current contribution
+            setPoi((prev) => {
+              if (!prev) return prev;
+              const updated: PoiDetails = {
+                ...prev,
+                current_contribution: {
+                  id: prev.current_contribution?.id ?? 'temp',
+                  contribution_type,
+                  created_at: nowIso,
+                  expires_at: nowIso,
+                  user: { id: 'me', name: 'You' },
+                  validations: 0,
+                  reports: 0,
+                },
+              } as any;
+              return updated;
+            });
+            updateCountdown();
+            emitContribution({ poiId, createdAtIso: nowIso });
+            // Refetch with forceRefresh to sync with backend and cache
+            loadPoiDetails(true);
+          }}
+        />
+
+        {/* Validation Confirmation Modal */}
+        {showValidationModal && (
+          <View style={styles.modalOverlay}>
+            <View style={styles.validationModalContainer}>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => {
                   setShowValidationModal(false);
                   setValidationType(null);
-                  Alert.alert('Success', `${validationType === 'valid' ? 'Validation' : 'Report'} submitted.`);
-                  // Immediately reflect that this user has validated: disable actions
-                  setAlreadyValidated(true);
-                  setPoi(prev => {
-                    if (!prev?.current_contribution) return prev;
-                    return {
-                      ...prev,
-                      current_contribution: {
-                        ...prev.current_contribution,
-                        can_validate: false,
-                        validations: prev.current_contribution.validations ?? 0,
-                        reports: prev.current_contribution.reports ?? 0,
-                      },
-                    } as any;
-                  });
-                  loadPoiDetails(true);
-                } catch (e: any) {
-                  // If backend says user already validated, reflect disabled UI
-                  const msg = e?.response?.data?.error || '';
-                  if (typeof msg === 'string' && (msg.includes('já validou') || msg.includes('validou esta contribuição'))) {
+                }}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+              <View style={[styles.modalIcon, validationType === 'valid' ? styles.validIcon : styles.reportIcon]}>
+                <Text style={styles.modalIconText}>{validationType === 'valid' ? '✓' : '🗑'}</Text>
+              </View>
+              <Text style={styles.validationModalTitle}>
+                {validationType === 'valid' ? 'Validate info' : 'Report info'}
+              </Text>
+              <Text style={styles.validationModalText}>
+                Are you sure you want to {validationType === 'valid' ? 'validate' : 'report'} this info?{' '}
+                This action cannot be undone.
+              </Text>
+              <TouchableOpacity
+                style={[styles.validationModalButton, validationType === 'valid' ? styles.validateButton : styles.reportModalButton]}
+                onPress={async () => {
+                  if (!token) {
+                    Alert.alert('Login required', 'You must be logged in.');
+                    setShowValidationModal(false);
+                    return;
+                  }
+                  if (!poi?.current_contribution) return;
+                  try {
+                    const vt = (validationType === 'valid' ? 'confirm' : 'dispute') as 'confirm' | 'dispute';
+                    await postValidation(poi.current_contribution.id, { validation_type: vt });
+                    setShowValidationModal(false);
+                    setValidationType(null);
+                    Alert.alert('Success', `${validationType === 'valid' ? 'Validation' : 'Report'} submitted.`);
+                    // Immediately reflect that this user has validated: disable actions
                     setAlreadyValidated(true);
                     setPoi(prev => {
                       if (!prev?.current_contribution) return prev;
@@ -655,39 +643,58 @@ export default function PoiDetailsScreen() {
                         current_contribution: {
                           ...prev.current_contribution,
                           can_validate: false,
+                          validations: prev.current_contribution.validations ?? 0,
+                          reports: prev.current_contribution.reports ?? 0,
                         },
                       } as any;
                     });
+                    loadPoiDetails(true);
+                  } catch (e: any) {
+                    // If backend says user already validated, reflect disabled UI
+                    const msg = e?.response?.data?.error || '';
+                    if (typeof msg === 'string' && (msg.includes('já validou') || msg.includes('validou esta contribuição'))) {
+                      setAlreadyValidated(true);
+                      setPoi(prev => {
+                        if (!prev?.current_contribution) return prev;
+                        return {
+                          ...prev,
+                          current_contribution: {
+                            ...prev.current_contribution,
+                            can_validate: false,
+                          },
+                        } as any;
+                      });
+                    }
+                    Alert.alert('Error', `Failed to submit ${validationType}.`);
                   }
-                  Alert.alert('Error', `Failed to submit ${validationType}.`);
-                }
-              }}
-            >
-              <Text style={styles.validationModalButtonText}>
-                {validationType === 'valid' ? 'Validate' : 'Report'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.validationModalCancelButton}
-              onPress={() => {
-                setShowValidationModal(false);
-                setValidationType(null);
-              }}
-            >
-              <Text style={styles.validationModalCancelText}>Cancel</Text>
-            </TouchableOpacity>
+                }}
+              >
+                <Text style={styles.validationModalButtonText}>
+                  {validationType === 'valid' ? 'Validate' : 'Report'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.validationModalCancelButton}
+                onPress={() => {
+                  setShowValidationModal(false);
+                  setValidationType(null);
+                }}
+              >
+                <Text style={styles.validationModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      )}
+        )}
 
-      {/* Status Buttons (always visible except within TTL) */}
-      {(!hasContribution || !isWithinTTL) && (
-        <StatusButtons
-          poiType={poiType === 'atm' ? 'atms' : 'gasstations'}
-          onSelect={(s) => handleStatusClick(s)}
-          containerStyle={styles.statusButtons}
-        />
-      )}
+        {/* Status Buttons (always visible except within TTL) */}
+        {(!hasContribution || !isWithinTTL) && (
+          <StatusButtons
+            poiType={poiType === 'atm' ? 'atms' : 'gasstations'}
+            onSelect={(s) => handleStatusClick(s)}
+            containerStyle={styles.statusButtons}
+          />
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -696,6 +703,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 96,
   },
   centered: {
     flex: 1,
