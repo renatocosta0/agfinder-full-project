@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
-import { API_BASE_URL } from '../config/env';
 import { Platform } from 'react-native';
+import { API_BASE_URL } from '../config/env';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -25,7 +25,7 @@ api.interceptors.request.use(async (config) => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       try {
         token = window.localStorage.getItem('auth_token');
-      } catch {}
+      } catch { }
     }
   }
   if (token) {
@@ -46,6 +46,11 @@ api.interceptors.response.use(
     if (err.response?.status === 401) {
       // Clear token and redirect to login (handled by AuthContext)
       SecureStore.deleteItemAsync('auth_token');
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        try {
+          window.localStorage.removeItem('auth_token');
+        } catch { }
+      }
     }
     if (typeof window !== 'undefined') {
       console.log('API Error', err?.response?.status, err?.config?.url, err?.response?.data);

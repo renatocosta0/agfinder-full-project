@@ -88,6 +88,8 @@ export default function PoisScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const isFetchingPoisRef = useRef(false);
 
+  const WEB_COORDS_KEY = 'agfinder_last_coords';
+
   const mapApiType = (t: PoiType): PoiTypeApi => (t === 'atms' ? 'atm' : 'gasstation');
   const mapUiType = (t: PoiTypeApi): PoiType => (t === 'atm' ? 'atms' : 'gasstations');
 
@@ -161,14 +163,26 @@ export default function PoisScreen() {
     const uiType = mapUiType(p.poi_type);
     // Debug: incoming API type vs UI type
     try { console.log('[mapListItemToPoi]', { api_type: p.poi_type, ui_type: uiType, name: p.name }); } catch { }
-    const current = p.current_contribution;
+    const anyP: any = p as any;
+    const current =
+      anyP?.current_contribution ??
+      (Array.isArray(anyP?.contributions)
+        ? (anyP.contributions.find((c: any) => c?.is_current) || anyP.contributions[0])
+        : null) ??
+      anyP?.last_contribution ??
+      null;
+
+    const reportsCount =
+      Number(anyP?.reports ?? anyP?.reports_count ?? anyP?.reportCount) ||
+      Number(current?.reports ?? current?.validations?.reports) ||
+      0;
     const base: Poi = {
       id: String(p.id),
       name: p.name,
       type: uiType,
       origType: p.poi_type,
       status: 'none',
-      reportCount: p.total_interactions ?? 0,
+      reportCount: reportsCount,
       distance: Number(p.distance_km ?? 0),
       lastUpdateMinutes: 9999,
       hasCurrent: !!current,
@@ -279,6 +293,19 @@ export default function PoisScreen() {
       } catch { }
 
       if (isWeb) {
+        // Hydrate last known coords so ordering/filtering doesn't reset on refresh.
+        try {
+          if (typeof window !== 'undefined') {
+            const raw = window.localStorage.getItem(WEB_COORDS_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Number.isFinite(parsed?.lat) && Number.isFinite(parsed?.lng)) {
+                setCoords({ lat: Number(parsed.lat), lng: Number(parsed.lng) });
+              }
+            }
+          }
+        } catch { }
+
         // Web: wait for geolocation (higher accuracy) before first fetch to avoid wrong "Nearest".
         // Fallback to DEFAULT_CENTER only if permission denied / timeout.
         setLoading(true);
@@ -340,6 +367,11 @@ export default function PoisScreen() {
               if (Number.isFinite(browserPos.lat) && Number.isFinite(browserPos.lng)) {
                 centerToUse = { lat: browserPos.lat, lng: browserPos.lng };
                 setCoords(centerToUse);
+                try {
+                  if (typeof window !== 'undefined') {
+                    window.localStorage.setItem(WEB_COORDS_KEY, JSON.stringify(centerToUse));
+                  }
+                } catch { }
               }
               try {
                 await recordUserLocation({

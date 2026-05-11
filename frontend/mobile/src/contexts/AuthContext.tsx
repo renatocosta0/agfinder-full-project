@@ -1,16 +1,41 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 
 interface AuthContextValue {
-  token: string | null;
+  token: string | null | undefined;
+  hydrated: boolean;
   setToken: (t: string | null) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setTokenState] = useState<string | null>(null);
+  const [token, setTokenState] = useState<string | null | undefined>(undefined);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let t: string | null = null;
+      try {
+        t = await SecureStore.getItemAsync('auth_token');
+      } catch {
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          try {
+            t = window.localStorage.getItem('auth_token');
+          } catch {
+            t = null;
+          }
+        }
+      }
+      if (!cancelled) setTokenState(t);
+      if (!cancelled) setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const setToken = async (t: string | null) => {
     setTokenState(t);
@@ -23,13 +48,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           if (t) window.localStorage.setItem('auth_token', t);
           else window.localStorage.removeItem('auth_token');
-        } catch {}
+        } catch { }
       }
       // Ignore storage errors to not block app flow
     }
   };
 
-  const value = useMemo(() => ({ token, setToken }), [token]);
+  const value = useMemo(() => ({ token, hydrated, setToken }), [token, hydrated]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
