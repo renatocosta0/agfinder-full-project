@@ -24,15 +24,30 @@ const { PointOfInterest, sequelize } = require('../models');
  */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const REQUEST_TIMEOUT_MS = 15000;
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 async function nearbySearchWithRetry(params, maxRetries = 5) {
   let attempt = 0;
   let delay = 1000;
   // Basic jitter
   const jitter = () => Math.floor(Math.random() * 250);
-  
+
   while (true) {
     try {
-      const resp = await mapsClient.nearbySearch(params);
+      const resp = await withTimeout(
+        mapsClient.nearbySearch(params),
+        REQUEST_TIMEOUT_MS,
+        'nearbySearch'
+      );
       const status = resp?.data?.status;
       if (status === 'OK' || status === 'ZERO_RESULTS' || !status) {
         return resp;
@@ -64,12 +79,12 @@ async function nearbySearchWithRetry(params, maxRetries = 5) {
 const syncRegionPOIs = async (lat, lng, radius, types = undefined) => {
   try {
     logger.info(`Synchronizing POIs for region: ${lat}, ${lng}, radius: ${radius}km`);
-    
+
     let totalPOIs = 0;
-    
+
     // Convert radius from kilometers to meters for Google Maps API
     const radiusInMeters = radius * 1000;
-    
+
     // Build list of POI types to sync
     const entries = Object.entries(POI_TYPES).filter(([k]) => {
       if (!types || !Array.isArray(types) || types.length === 0) return true;
@@ -79,20 +94,21 @@ const syncRegionPOIs = async (lat, lng, radius, types = undefined) => {
     // Synchronize each selected POI type
     for (const [poiKey, poiConfig] of entries) {
       logger.info(`Syncing ${poiKey} (${poiConfig.googleType}) POIs...`);
-      
+
       try {
         let pageToken = null;
         let pageIndex = 0;
 
+        const MAX_PAGES = 3;
         do {
           const params = pageToken
             ? { pagetoken: pageToken, key: process.env.GOOGLE_MAPS_API_KEY }
             : {
-                location: `${lat},${lng}`,
-                radius: radiusInMeters,
-                type: poiConfig.googleType,
-                key: process.env.GOOGLE_MAPS_API_KEY,
-              };
+              location: `${lat},${lng}`,
+              radius: radiusInMeters,
+              type: poiConfig.googleType,
+              key: process.env.GOOGLE_MAPS_API_KEY,
+            };
 
           if (pageToken) {
             // Google requires a short delay before using next_page_token
@@ -108,25 +124,29 @@ const syncRegionPOIs = async (lat, lng, radius, types = undefined) => {
             // Map results to POI rows
             const rows = results.map((place) => mapPlaceToPOIRow(place, poiKey));
 
-            // Bulk upsert
-            await PointOfInterest.bulkCreate(rows, {
-              updateOnDuplicate: [
-                'name',
-                'address',
-                'latitude',
-                'longitude',
-                'poi_type',
-                'google_data',
-                'last_sync_at',
-              ],
-            });
+            // Bulk upsert with timeout to avoid hanging on DB
+            await withTimeout(
+              PointOfInterest.bulkCreate(rows, {
+                updateOnDuplicate: [
+                  'name',
+                  'address',
+                  'latitude',
+                  'longitude',
+                  'poi_type',
+                  'google_data',
+                  'last_sync_at',
+                ],
+              }),
+              30000,
+              'bulkCreate'
+            );
 
             totalPOIs += results.length;
           }
 
           pageToken = response?.data?.next_page_token || null;
           pageIndex += 1;
-        } while (pageToken);
+        } while (pageToken && pageIndex < MAX_PAGES);
       } catch (error) {
         logger.error(`Error fetching ${poiKey} POIs:`, error);
         // Continue with other POI types even if one fails
@@ -140,16 +160,17 @@ const syncRegionPOIs = async (lat, lng, radius, types = undefined) => {
           try {
             let bankPageToken = null;
             let bankPageIndex = 0;
+            const MAX_BANK_PAGES = 2;
             do {
               const bankParams = bankPageToken
                 ? { pagetoken: bankPageToken, key: process.env.GOOGLE_MAPS_API_KEY }
                 : {
-                    location: `${lat},${lng}`,
-                    radius: radiusInMeters,
-                    type: 'bank',
-                    keyword,
-                    key: process.env.GOOGLE_MAPS_API_KEY,
-                  };
+                  location: `${lat},${lng}`,
+                  radius: radiusInMeters,
+                  type: 'bank',
+                  keyword,
+                  key: process.env.GOOGLE_MAPS_API_KEY,
+                };
 
               if (bankPageToken) await sleep(2000);
 
@@ -159,15 +180,19 @@ const syncRegionPOIs = async (lat, lng, radius, types = undefined) => {
 
               if (bankResults.length > 0) {
                 const bankRows = bankResults.map((place) => mapPlaceToPOIRow(place, 'atm'));
-                await PointOfInterest.bulkCreate(bankRows, {
-                  updateOnDuplicate: ['name','address','latitude','longitude','poi_type','google_data','last_sync_at'],
-                });
+                await withTimeout(
+                  PointOfInterest.bulkCreate(bankRows, {
+                    updateOnDuplicate: ['name', 'address', 'latitude', 'longitude', 'poi_type', 'google_data', 'last_sync_at'],
+                  }),
+                  30000,
+                  'bulkCreate'
+                );
                 totalPOIs += bankResults.length;
               }
 
               bankPageToken = bankResponse?.data?.next_page_token || null;
               bankPageIndex += 1;
-            } while (bankPageToken);
+            } while (bankPageToken && bankPageIndex < MAX_BANK_PAGES);
           } catch (bankErr) {
             logger.error(`Secondary ATM bank-pass error for keyword ${keyword}:`, bankErr);
           }
@@ -182,36 +207,45 @@ const syncRegionPOIs = async (lat, lng, radius, types = undefined) => {
             logger.info(`TextSearch fallback for ATMs with query "${query}"`);
             let textPageToken = null;
             let textPageIndex = 0;
+            const MAX_TEXT_PAGES = 2;
             do {
               const textParams = textPageToken
                 ? { pagetoken: textPageToken, key: process.env.GOOGLE_MAPS_API_KEY }
                 : {
-                    query,
-                    location: `${lat},${lng}`,
-                    radius: radiusInMeters,
-                    key: process.env.GOOGLE_MAPS_API_KEY,
-                  };
+                  query,
+                  location: `${lat},${lng}`,
+                  radius: radiusInMeters,
+                  key: process.env.GOOGLE_MAPS_API_KEY,
+                };
               if (textPageToken) await sleep(2000);
-              const textResp = await mapsClient.textSearch(textParams);
+              const textResp = await withTimeout(
+                mapsClient.textSearch(textParams),
+                REQUEST_TIMEOUT_MS,
+                'textSearch'
+              );
               const textResults = textResp?.data?.results || [];
               logger.info(`TextSearch(${query}) page ${textPageIndex}: ${textResults.length} results`);
               if (textResults.length > 0) {
                 const rows = textResults.map((place) => mapPlaceToPOIRow(place, 'atm'));
-                await PointOfInterest.bulkCreate(rows, {
-                  updateOnDuplicate: ['name','address','latitude','longitude','poi_type','google_data','last_sync_at'],
-                });
+                await withTimeout(
+                  PointOfInterest.bulkCreate(rows, {
+                    updateOnDuplicate: ['name', 'address', 'latitude', 'longitude', 'poi_type', 'google_data', 'last_sync_at'],
+                  }),
+                  30000,
+                  'bulkCreate'
+                );
                 totalPOIs += textResults.length;
               }
               textPageToken = textResp?.data?.next_page_token || null;
               textPageIndex += 1;
-            } while (textPageToken);
+            } while (textPageToken && textPageIndex < MAX_TEXT_PAGES);
           }
         } catch (tsErr) {
           logger.error('TextSearch fallback error:', tsErr);
         }
       }
     }
-    
+
     logger.info(`Sync completed. Total POIs synchronized: ${totalPOIs}`);
     return totalPOIs;
   } catch (error) {
@@ -258,7 +292,7 @@ const getPlaceDetails = async (placeId) => {
       place_id: placeId,
       key: process.env.GOOGLE_MAPS_API_KEY
     });
-    
+
     if (response.data.status === 'OK' && response.data.result) {
       return response.data.result;
     } else {

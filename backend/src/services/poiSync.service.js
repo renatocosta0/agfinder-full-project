@@ -218,7 +218,13 @@ const startRegionSyncJob = (lat, lng, radius, priority = 'medium', force = false
     syncJobs.set(jobId, job);
 
     try {
-      const result = await syncRegionIfNeeded(lat, lng, radius, priority, !!force, types);
+      const JOB_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+      const result = await Promise.race([
+        syncRegionIfNeeded(lat, lng, radius, priority, !!force, types),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Sync job timed out after 5 minutes')), JOB_TIMEOUT_MS)
+        ),
+      ]);
       const updatedJob = syncJobs.get(jobId);
       if (!updatedJob) return;
       updatedJob.status = 'completed';
