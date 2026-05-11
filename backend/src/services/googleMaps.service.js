@@ -10,10 +10,34 @@
  * As requisições da API para o usuário final devem usar o banco de dados local.
  */
 
-const mapsClient = require('../utils/mapsClient');
+const axios = require('axios');
 const logger = require('../utils/logger');
 const { POI_TYPES } = require('../config/pois.config');
 const { PointOfInterest, sequelize } = require('../models');
+
+const GOOGLE_API_BASE = 'https://maps.googleapis.com/maps/api';
+
+async function googleNearbySearch(params, timeoutMs = 10000) {
+  const url = `${GOOGLE_API_BASE}/place/nearbysearch/json`;
+  const { data } = await axios.get(url, { params, timeout: timeoutMs });
+  if (data.status === 'OVER_QUERY_LIMIT' || data.status === 'REQUEST_DENIED' || data.status === 'INVALID_REQUEST') {
+    const err = new Error(`Google API status: ${data.status}`);
+    err.response = { data };
+    throw err;
+  }
+  return { data };
+}
+
+async function googleTextSearch(params, timeoutMs = 10000) {
+  const url = `${GOOGLE_API_BASE}/place/textsearch/json`;
+  const { data } = await axios.get(url, { params, timeout: timeoutMs });
+  if (data.status === 'OVER_QUERY_LIMIT' || data.status === 'REQUEST_DENIED' || data.status === 'INVALID_REQUEST') {
+    const err = new Error(`Google API status: ${data.status}`);
+    err.response = { data };
+    throw err;
+  }
+  return { data };
+}
 
 /**
  * Synchronize POIs for a specific region
@@ -44,7 +68,7 @@ async function nearbySearchWithRetry(params, maxRetries = 2) {
   while (true) {
     try {
       const resp = await withTimeout(
-        mapsClient.nearbySearch(params),
+        googleNearbySearch(params, REQUEST_TIMEOUT_MS),
         REQUEST_TIMEOUT_MS,
         'nearbySearch'
       );
@@ -231,7 +255,7 @@ const syncRegionPOIs = async (lat, lng, radius, types = undefined) => {
                 };
               if (textPageToken) await sleep(2000);
               const textResp = await withTimeout(
-                mapsClient.textSearch(textParams),
+                googleTextSearch(textParams, REQUEST_TIMEOUT_MS),
                 REQUEST_TIMEOUT_MS,
                 'textSearch'
               );
