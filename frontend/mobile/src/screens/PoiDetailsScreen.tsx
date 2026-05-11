@@ -365,7 +365,11 @@ export default function PoiDetailsScreen() {
     if (Platform.OS === 'web') {
       const webUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
       try {
-        await Linking.openURL(webUrl);
+        if (typeof window !== 'undefined' && typeof window.open === 'function') {
+          window.open(webUrl, '_blank', 'noopener,noreferrer');
+        } else {
+          await Linking.openURL(webUrl);
+        }
       } catch {
         Alert.alert('Error', 'Unable to open maps.');
       }

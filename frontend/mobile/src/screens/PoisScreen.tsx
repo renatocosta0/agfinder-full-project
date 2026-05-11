@@ -41,6 +41,8 @@ interface Poi {
   lastUpdate: string;
   status: StatusType;
   reportCount: number;
+  reportsCount?: number;
+  validationsCount?: number;
   isRecentlyUpdated?: boolean;
   timeUntilNext?: string;
   distance: number; // in kilometers
@@ -162,31 +164,45 @@ export default function PoisScreen() {
     // Debug: incoming API type vs UI type
     try { console.log('[mapListItemToPoi]', { api_type: p.poi_type, ui_type: uiType, name: p.name }); } catch { }
     const current = p.current_contribution;
+
+    // Backend sends total_interactions = 1 + validations + reports when there is a current contribution.
+    // The list payload does not include validations/reports explicitly, so we derive them:
+    // - If total_interactions is 0: none
+    // - If >= 1: (validations + reports) = total_interactions - 1
+    // We don't know the split between validations and reports; for the UI filter "Most reports"
+    // we treat it as "most interactions" to avoid always showing 0 for other users.
+    const totalInteractions = Number(p.total_interactions ?? 0);
+    const derivedInteractions = Math.max(0, totalInteractions - 1);
+
     const base: Poi = {
       id: String(p.id),
       name: p.name,
       type: uiType,
       origType: p.poi_type,
       status: 'none',
-      reportCount: p.total_interactions ?? 0,
+      reportCount: totalInteractions,
+      reportsCount: derivedInteractions,
+      validationsCount: 0,
       distance: Number(p.distance_km ?? 0),
       lastUpdateMinutes: 9999,
       hasCurrent: !!current,
-      currentCreatedAt: current?.created_at,
+      currentCreatedAt: (current as any)?.created_at || (current as any)?.createdAt,
       currentType: (current as any)?.type || (current as any)?.contribution_type,
       lastUpdate: 'No updates today',
       freshnessMs: Number.MAX_SAFE_INTEGER,
       address: p.address,
     };
-    if (current?.created_at) {
-      const { remainingMs, countdownLabel, progressiveLabel } = computeCountdown(current.created_at);
-      const createdMs = new Date(current.created_at).getTime();
+
+    const createdAt = (current as any)?.created_at || (current as any)?.createdAt;
+    if (createdAt) {
+      const { remainingMs, countdownLabel, progressiveLabel } = computeCountdown(createdAt);
+      const createdMs = new Date(createdAt).getTime();
       const elapsedMs = Math.max(0, Date.now() - createdMs);
       if (remainingMs > 0) {
         return { ...base, isRecentlyUpdated: true, timeUntilNext: countdownLabel.replace('Updated in ', ''), lastUpdate: progressiveLabel, lastUpdateMinutes: Math.floor(elapsedMs / 60000), freshnessMs: elapsedMs };
       }
       const minsAgo = Math.floor(elapsedMs / 60000);
-      return { ...base, isRecentlyUpdated: false, lastUpdate: formatSince(current.created_at), lastUpdateMinutes: minsAgo, freshnessMs: elapsedMs };
+      return { ...base, isRecentlyUpdated: false, lastUpdate: formatSince(createdAt), lastUpdateMinutes: minsAgo, freshnessMs: elapsedMs };
     }
     return { ...base, isRecentlyUpdated: false, lastUpdate: 'No updates today' };
   };
@@ -486,7 +502,7 @@ export default function PoisScreen() {
       case 'recent':
         return (a.freshnessMs ?? Number.MAX_SAFE_INTEGER) - (b.freshnessMs ?? Number.MAX_SAFE_INTEGER);
       case 'reports':
-        return b.reportCount - a.reportCount;
+        return (b.reportsCount ?? b.reportCount) - (a.reportsCount ?? a.reportCount);
       default:
         return 0;
     }
