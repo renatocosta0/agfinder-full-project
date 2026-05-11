@@ -360,33 +360,46 @@ export default function PoiDetailsScreen() {
       return;
     }
     const label = encodeURIComponent(poi.name || poi.address || 'Location');
-    let url = '';
-    if (Platform.OS === 'ios') {
-      // Try Google Maps first if installed (check bare scheme per iOS rules)
-      const googleScheme = 'comgooglemaps://';
-      const googleMapsUrl = `comgooglemaps://?q=${lat},${lng}(${label})`;
-      const canOpenGoogle = await Linking.canOpenURL(googleScheme);
-      if (canOpenGoogle) {
-        url = googleMapsUrl;
-      } else {
-        // Fallback to Apple Maps
-        url = `http://maps.apple.com/?ll=${lat},${lng}&q=${label}`;
-      }
-    } else {
-      // Android: try Google Maps navigation or geo link
-      url = `geo:${lat},${lng}?q=${lat},${lng}(${label})`;
-    }
-    try {
-      const supported = await Linking.canOpenURL(url);
-      if (supported) {
-        await Linking.openURL(url);
-      } else {
-        // Web fallback
-        const webUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+
+    // Web: always open HTTPS Google Maps (geo: links often fail on iOS Safari and bounce back)
+    if (Platform.OS === 'web') {
+      const webUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+      try {
         await Linking.openURL(webUrl);
+      } catch {
+        Alert.alert('Error', 'Unable to open maps.');
       }
-    } catch (e) {
-      Alert.alert('Error', 'Unable to open maps.');
+      return;
+    }
+
+    // Native platforms
+    if (Platform.OS === 'ios') {
+      const appleMapsUrl = `http://maps.apple.com/?ll=${lat},${lng}&q=${label}`;
+      const googleMapsUrl = `comgooglemaps://?q=${lat},${lng}(${label})`;
+      try {
+        const canOpenGoogle = await Linking.canOpenURL('comgooglemaps://');
+        await Linking.openURL(canOpenGoogle ? googleMapsUrl : appleMapsUrl);
+      } catch {
+        try {
+          await Linking.openURL(appleMapsUrl);
+        } catch {
+          Alert.alert('Error', 'Unable to open maps.');
+        }
+      }
+      return;
+    }
+
+    // Android
+    const geoUrl = `geo:${lat},${lng}?q=${lat},${lng}(${label})`;
+    try {
+      await Linking.openURL(geoUrl);
+    } catch {
+      const webUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+      try {
+        await Linking.openURL(webUrl);
+      } catch {
+        Alert.alert('Error', 'Unable to open maps.');
+      }
     }
   };
 
