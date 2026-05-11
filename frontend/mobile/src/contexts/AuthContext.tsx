@@ -3,38 +3,36 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { Platform } from 'react-native';
 
 interface AuthContextValue {
-  token: string | null | undefined;
-  hydrated: boolean;
+  token: string | null;
   setToken: (t: string | null) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setTokenState] = useState<string | null | undefined>(undefined);
-  const [hydrated, setHydrated] = useState(false);
+  const [token, setTokenState] = useState<string | null>(null);
 
+  // Load persisted token on mount so the user stays logged in after refresh
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      let t: string | null = null;
       try {
-        t = await SecureStore.getItemAsync('auth_token');
-      } catch {
-        if (Platform.OS === 'web' && typeof window !== 'undefined') {
-          try {
-            t = window.localStorage.getItem('auth_token');
-          } catch {
-            t = null;
+        let stored: string | null = null;
+        try {
+          stored = await SecureStore.getItemAsync('auth_token');
+        } catch (e) {
+          if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            try {
+              stored = window.localStorage.getItem('auth_token');
+            } catch { }
           }
         }
+        if (!cancelled) setTokenState(stored);
+      } catch {
+        // ignore load errors
       }
-      if (!cancelled) setTokenState(t);
-      if (!cancelled) setHydrated(true);
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   const setToken = async (t: string | null) => {
@@ -54,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const value = useMemo(() => ({ token, hydrated, setToken }), [token, hydrated]);
+  const value = useMemo(() => ({ token, setToken }), [token]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

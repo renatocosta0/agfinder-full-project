@@ -52,11 +52,8 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function AppNavigator() {
-  const { token, hydrated } = useAuth();
+  const { token } = useAuth();
   const isWeb = Platform.OS === 'web';
-  if (!hydrated) {
-    return null;
-  }
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       {token ? (

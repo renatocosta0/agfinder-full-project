@@ -46,11 +46,6 @@ api.interceptors.response.use(
     if (err.response?.status === 401) {
       // Clear token and redirect to login (handled by AuthContext)
       SecureStore.deleteItemAsync('auth_token');
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        try {
-          window.localStorage.removeItem('auth_token');
-        } catch { }
-      }
     }
     if (typeof window !== 'undefined') {
       console.log('API Error', err?.response?.status, err?.config?.url, err?.response?.data);
