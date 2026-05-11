@@ -5,16 +5,16 @@ const geoUtils = require('../utils/geo.utils');
 
 // Add a contribution to a POI
 const addContribution = async (req, res) => {
-  const transaction = await sequelize.transaction();
-  
+  let transaction;
   try {
+    transaction = await sequelize.transaction();
     const { id: poiId } = req.params;
     const { contribution_type } = req.body;
     const { id: userId } = req.user;
 
     // Validate contribution type based on POI type
     const poi = await PointOfInterest.findByPk(poiId);
-    
+
     if (!poi) {
       await transaction.rollback();
       return res.status(404).json({
@@ -26,7 +26,7 @@ const addContribution = async (req, res) => {
     // Validate contribution type
     const atmTypes = ['money_paper', 'money_only', 'paper_only', 'none'];
     const gasStationTypes = ['gasoline_diesel', 'gasoline_only', 'diesel_only', 'none'];
-    
+
     if (
       (poi.poi_type === 'atm' && !atmTypes.includes(contribution_type)) ||
       (poi.poi_type === 'gasstation' && !gasStationTypes.includes(contribution_type))
@@ -102,7 +102,7 @@ const addContribution = async (req, res) => {
 
     // Add bonus points for contribution
     const bonusPoints = parseInt(process.env.BONUS_CONTRIBUTION, 10) || 10;
-    
+
     await BonusTransaction.create(
       {
         user_id: userId,
@@ -155,7 +155,13 @@ const addContribution = async (req, res) => {
       },
     });
   } catch (error) {
-    await transaction.rollback();
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackErr) {
+        logger.warn('Rollback failed in addContribution:', rollbackErr);
+      }
+    }
     logger.error('Add contribution error:', error);
     return res.status(500).json({
       status: 'error',
@@ -171,7 +177,7 @@ const getCurrentContribution = async (req, res) => {
 
     // Check if POI exists
     const poi = await PointOfInterest.findByPk(poiId);
-    
+
     if (!poi) {
       return res.status(404).json({
         status: 'error',
@@ -224,7 +230,7 @@ const getCurrentContribution = async (req, res) => {
           profile_picture: v.user.profile_picture,
         },
       }));
-      
+
     const reports = contribution.validations
       .filter(v => v.validation_type === 'report')
       .map(v => ({
@@ -269,7 +275,7 @@ const getCurrentContribution = async (req, res) => {
 // Validate a contribution
 const validateContribution = async (req, res) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { id: contributionId } = req.params;
     const { validation_type } = req.body;
@@ -288,7 +294,7 @@ const validateContribution = async (req, res) => {
         },
       ],
     });
-    
+
     if (!contribution) {
       await transaction.rollback();
       return res.status(404).json({
@@ -378,7 +384,7 @@ const validateContribution = async (req, res) => {
     // If validation type is 'valid', add bonus points to the contribution creator
     if (validation_type === 'valid') {
       const bonusPoints = parseInt(process.env.BONUS_VALIDATION, 10) || 5;
-      
+
       await BonusTransaction.create(
         {
           user_id: contribution.user_id,
@@ -399,7 +405,7 @@ const validateContribution = async (req, res) => {
         }
       );
     }
-    
+
     // If it's a report, check if user already has reports that should result in ban
     if (validation_type === 'report') {
       const reportedContributions = await Contribution.findAll({
@@ -413,19 +419,19 @@ const validateContribution = async (req, res) => {
           },
         ],
       });
-      
+
       // Count contributions with more reports than validations
       let badContributions = 0;
-      
+
       for (const contrib of reportedContributions) {
         const validCount = contrib.validations.filter(v => v.validation_type === 'valid').length;
         const reportCount = contrib.validations.filter(v => v.validation_type === 'report').length;
-        
+
         if (reportCount > validCount && reportCount >= 3) {
           badContributions++;
         }
       }
-      
+
       // Add warning if user has exactly 3 bad contributions
       if (badContributions === 3) {
         // Create a warning record
@@ -438,7 +444,7 @@ const validateContribution = async (req, res) => {
           },
           { transaction }
         );
-        
+
         // Update the user's warning count
         await User.increment(
           { warning_count: 1 },
@@ -447,10 +453,10 @@ const validateContribution = async (req, res) => {
             transaction,
           }
         );
-        
+
         logger.info(`Warning added for user ${contribution.user_id} with 3 bad contributions`);
       }
-      
+
       // Apply penalties if necessary
       if (badContributions >= 10) {
         // Permanent ban
@@ -465,7 +471,7 @@ const validateContribution = async (req, res) => {
             transaction,
           }
         );
-        
+
         // Create severe warning record
         await UserWarning.create(
           {
@@ -476,13 +482,13 @@ const validateContribution = async (req, res) => {
           },
           { transaction }
         );
-        
+
         logger.info(`User ${contribution.user_id} permanently banned for having ${badContributions} bad contributions`);
       } else if (badContributions >= 5) {
         // Temporary ban (1 week)
         const banExpiry = new Date();
         banExpiry.setDate(banExpiry.getDate() + 7);
-        
+
         await User.update(
           {
             is_banned: true,
@@ -494,7 +500,7 @@ const validateContribution = async (req, res) => {
             transaction,
           }
         );
-        
+
         // Create major warning record
         await UserWarning.create(
           {
@@ -505,7 +511,7 @@ const validateContribution = async (req, res) => {
           },
           { transaction }
         );
-        
+
         logger.info(`User ${contribution.user_id} temporarily banned for having ${badContributions} bad contributions`);
       }
     }
@@ -572,10 +578,10 @@ const getRecentContributions = async (req, res) => {
 
     const { Contribution, PointOfInterest, User } = require('../models');
     const { Op } = require('sequelize');
-    
+
     const offset = (page - 1) * parseInt(limit);
     const whereClause = {};
-    
+
     // Filtro por status
     if (status !== 'all') {
       whereClause.processing_status = status;
@@ -584,7 +590,7 @@ const getRecentContributions = async (req, res) => {
         [Op.notIn]: ['rejected', 'expired']
       };
     }
-    
+
     // Filtro por data
     if (since) {
       const sinceDate = new Date(since);
@@ -598,7 +604,7 @@ const getRecentContributions = async (req, res) => {
     // Filtro por POI específico
     if (poi_id) {
       whereClause.poi_id = poi_id;
-      
+
       const contributions = await Contribution.findAndCountAll({
         where: whereClause,
         limit: parseInt(limit),
@@ -617,10 +623,10 @@ const getRecentContributions = async (req, res) => {
           }
         ]
       });
-      
+
       // Não cachear resultados específicos de contribuições
       res.set('Cache-Control', 'no-cache');
-      
+
       return res.json({
         success: true,
         data: {
@@ -634,11 +640,11 @@ const getRecentContributions = async (req, res) => {
         }
       });
     }
-    
+
     // Filtro por região geográfica
     if (lat && lng) {
       const radiusKm = parseFloat(radius);
-      
+
       // Usar função otimizada para consultas geográficas
       const result = await Contribution.findInRegion(
         parseFloat(lat),
@@ -646,13 +652,13 @@ const getRecentContributions = async (req, res) => {
         radiusKm,
         since ? new Date(since) : null
       );
-      
+
       // Paginar os resultados após a filtragem geográfica
       const pagedResults = result.slice(offset, offset + parseInt(limit));
-      
+
       // Não cachear resultados geográficos
       res.set('Cache-Control', 'no-cache');
-      
+
       return res.json({
         success: true,
         data: {
@@ -670,7 +676,7 @@ const getRecentContributions = async (req, res) => {
         }
       });
     }
-    
+
     // Busca padrão sem filtro geográfico
     const contributions = await Contribution.findAndCountAll({
       where: whereClause,
@@ -690,10 +696,10 @@ const getRecentContributions = async (req, res) => {
         }
       ]
     });
-    
+
     // Não cachear contribuições
     res.set('Cache-Control', 'no-cache');
-    
+
     return res.json({
       success: true,
       data: {
@@ -735,7 +741,7 @@ exports.validateContribution = async (req, res) => {
     }
 
     const { Contribution, Validation, PointOfInterest } = require('../models');
-    
+
     // Buscar a contribuição
     const contribution = await Contribution.findByPk(id, {
       include: [
@@ -745,14 +751,14 @@ exports.validateContribution = async (req, res) => {
         }
       ]
     });
-    
+
     if (!contribution) {
       return res.status(404).json({
         success: false,
         error: 'Contribuição não encontrada'
       });
     }
-    
+
     // Verificar se não expirou
     if (contribution.expires_at && new Date() > new Date(contribution.expires_at)) {
       return res.status(400).json({
@@ -760,7 +766,7 @@ exports.validateContribution = async (req, res) => {
         error: 'Esta contribuição expirou e não pode mais ser validada'
       });
     }
-    
+
     // Verificar se usuário não está validando sua própria contribuição
     if (contribution.user_id === userId) {
       return res.status(400).json({
@@ -768,7 +774,7 @@ exports.validateContribution = async (req, res) => {
         error: 'Não é possível validar sua própria contribuição'
       });
     }
-    
+
     // Verificar se o usuário já validou esta contribuição
     const existingValidation = await Validation.findOne({
       where: {
@@ -776,14 +782,14 @@ exports.validateContribution = async (req, res) => {
         user_id: userId
       }
     });
-    
+
     if (existingValidation) {
       return res.status(400).json({
         success: false,
         error: 'Você já validou esta contribuição anteriormente'
       });
     }
-    
+
     // Normalizar para ENUM do modelo ('valid' | 'report')
     const normalizedType = validation_type === 'confirm' ? 'valid' : 'report';
 
@@ -794,16 +800,16 @@ exports.validateContribution = async (req, res) => {
       validation_type: normalizedType,
       notes: notes || null
     });
-    
+
     // Atualizar contadores e status da contribuição
     if (validation_type === 'confirm') {
       contribution.verification_count += 1;
-      
+
       // Se atingiu um limiar, marcar como verificada
       if (contribution.verification_count >= 3 && contribution.processing_status === 'pending') {
         contribution.processing_status = 'verified';
         contribution.verified_at = new Date();
-        
+
         // Atualizar a confiabilidade do POI
         if (contribution.poi) {
           const poi = contribution.poi;
@@ -813,24 +819,24 @@ exports.validateContribution = async (req, res) => {
       }
     } else {
       contribution.dispute_count += 1;
-      
+
       // Se recebeu muitas disputas, marcar como disputada
       if (contribution.dispute_count >= 2 && contribution.processing_status === 'pending') {
         contribution.processing_status = 'disputed';
       }
     }
-    
+
     // Atualizar pontuação de confiabilidade da contribuição
     const confirmWeight = 1;
     const disputeWeight = -1.5;
     const baseScore = 5;
-    
-    contribution.reliability_score = Math.max(0, Math.min(10, 
+
+    contribution.reliability_score = Math.max(0, Math.min(10,
       baseScore + (contribution.verification_count * confirmWeight) + (contribution.dispute_count * disputeWeight)
     ));
-    
+
     await contribution.save();
-    
+
     return res.json({
       success: true,
       data: {
