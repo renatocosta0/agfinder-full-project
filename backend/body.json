@@ -1,7 +1,7 @@
 ﻿{
   "lat": -8.995,
   "lng": 13.205,
-  "radius": 5,
+  "radius": 10,
   "priority": "high",
   "force": true
 }
