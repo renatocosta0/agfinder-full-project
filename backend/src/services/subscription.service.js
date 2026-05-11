@@ -1,4 +1,5 @@
 const { SubscriptionTransaction, User, sequelize } = require('../models');
+const { Op } = require('sequelize');
 const logger = require('../utils/logger');
 
 // Helpers for config
@@ -26,7 +27,7 @@ const createSubscription = async (subscriptionData, transaction) => {
   try {
     const { user_id, subscription_type, payment_method = 'proxypay' } = subscriptionData;
     const starts_at = subscriptionData.starts_at || new Date();
-    
+
     // Calculate end date based on subscription type
     const ends_at = new Date(starts_at);
     switch (subscription_type) {
@@ -48,13 +49,13 @@ const createSubscription = async (subscriptionData, transaction) => {
       default:
         throw new Error(`Invalid subscription type: ${subscription_type}`);
     }
-    
+
     // If a specific end date was provided, use it
     const finalEndsAt = subscriptionData.ends_at || ends_at;
-    
+
     // Use provided transaction or create a new one
     const t = transaction || await sequelize.transaction();
-    
+
     try {
       // Create subscription
       const subscription = await SubscriptionTransaction.create({
@@ -71,21 +72,21 @@ const createSubscription = async (subscriptionData, transaction) => {
         payment_amount: subscriptionData.payment_amount,
         payment_currency: subscriptionData.payment_currency,
       }, { transaction: t });
-      
+
       // Update user subscription status
       await User.update({
         has_active_subscription: true,
         current_subscription_end: finalEndsAt,
-      }, { 
+      }, {
         where: { id: user_id },
-        transaction: t 
+        transaction: t
       });
-      
+
       // If we created our own transaction, commit it
       if (!transaction) {
         await t.commit();
       }
-      
+
       logger.info(`Subscription created for user ${user_id}, type: ${subscription_type}, ends at: ${finalEndsAt}`);
       return subscription;
     } catch (error) {
@@ -132,24 +133,24 @@ const getUserSubscriptions = async (userId, options = {}) => {
   try {
     const { page = 1, limit = 10, includeExpired = true } = options;
     const offset = (page - 1) * limit;
-    
-    const where = { 
+
+    const where = {
       user_id: userId,
       status: 'completed',
     };
-    
+
     // Filter by active status if requested
     if (!includeExpired) {
       where.is_active = true;
     }
-    
+
     const { count, rows } = await SubscriptionTransaction.findAndCountAll({
       where,
       order: [['created_at', 'DESC']],
       limit,
       offset,
     });
-    
+
     return {
       subscriptions: rows,
       pagination: {
@@ -176,41 +177,41 @@ const extendSubscription = async (subscriptionId, days, transaction) => {
   try {
     // Use provided transaction or create a new one
     const t = transaction || await sequelize.transaction();
-    
+
     try {
       // Get the subscription
-      const subscription = await SubscriptionTransaction.findByPk(subscriptionId, { 
-        transaction: t 
+      const subscription = await SubscriptionTransaction.findByPk(subscriptionId, {
+        transaction: t
       });
-      
+
       if (!subscription) {
         throw new Error(`Subscription not found: ${subscriptionId}`);
       }
-      
+
       if (!subscription.is_active || subscription.status !== 'completed') {
         throw new Error(`Cannot extend inactive subscription: ${subscriptionId}`);
       }
-      
+
       // Calculate new end date
       const currentEndDate = new Date(subscription.expires_at);
       const newEndDate = new Date(currentEndDate);
       newEndDate.setDate(newEndDate.getDate() + days);
-      
+
       // Update subscription
       await subscription.update({
         expires_at: newEndDate,
       }, { transaction: t });
-      
+
       // Update user's current subscription end date if this extends beyond current end
-      const user = await User.findByPk(subscription.user_id, { 
-        transaction: t 
+      const user = await User.findByPk(subscription.user_id, {
+        transaction: t
       });
-      
+
       if (user) {
-        const currentUserEndDate = user.current_subscription_end 
-          ? new Date(user.current_subscription_end) 
+        const currentUserEndDate = user.current_subscription_end
+          ? new Date(user.current_subscription_end)
           : new Date();
-          
+
         if (newEndDate > currentUserEndDate) {
           await user.update({
             has_active_subscription: true,
@@ -218,12 +219,12 @@ const extendSubscription = async (subscriptionId, days, transaction) => {
           }, { transaction: t });
         }
       }
-      
+
       // If we created our own transaction, commit it
       if (!transaction) {
         await t.commit();
       }
-      
+
       logger.info(`Subscription ${subscriptionId} extended by ${days} days, new end date: ${newEndDate}`);
       return await SubscriptionTransaction.findByPk(subscriptionId);
     } catch (error) {
@@ -246,48 +247,48 @@ const extendSubscription = async (subscriptionId, days, transaction) => {
 const deactivateExpiredSubscriptions = async () => {
   try {
     const now = new Date();
-    
+
     // Find all active subscriptions that have expired
     const expiredSubscriptions = await SubscriptionTransaction.findAll({
       where: {
         is_active: true,
         status: 'completed',
         expires_at: {
-          [sequelize.Op.lt]: now,
+          [Op.lt]: now,
         },
       },
     });
-    
+
     if (expiredSubscriptions.length === 0) {
       logger.info('No expired subscriptions to deactivate');
       return { deactivated: 0 };
     }
-    
+
     // Create a transaction
     const t = await sequelize.transaction();
-    
+
     try {
       // Group subscriptions by user
       const userSubscriptionsMap = {};
-      
+
       expiredSubscriptions.forEach(subscription => {
         if (!userSubscriptionsMap[subscription.user_id]) {
           userSubscriptionsMap[subscription.user_id] = [];
         }
         userSubscriptionsMap[subscription.user_id].push(subscription);
       });
-      
+
       // Process each user's subscriptions
       for (const userId in userSubscriptionsMap) {
         const userSubscriptions = userSubscriptionsMap[userId];
-        
+
         // Deactivate all expired subscriptions
         for (const subscription of userSubscriptions) {
           await subscription.update({
             is_active: false,
           }, { transaction: t });
         }
-        
+
         // Check if user has any active subscriptions left
         const remainingActiveSubscription = await SubscriptionTransaction.findOne({
           where: {
@@ -295,19 +296,19 @@ const deactivateExpiredSubscriptions = async () => {
             is_active: true,
             status: 'completed',
             expires_at: {
-              [sequelize.Op.gt]: now,
+              [Op.gt]: now,
             },
           },
           order: [['expires_at', 'DESC']],
           transaction: t,
         });
-        
+
         // Update user status
         if (remainingActiveSubscription) {
           await User.update({
             has_active_subscription: true,
             current_subscription_end: remainingActiveSubscription.expires_at,
-          }, { 
+          }, {
             where: { id: userId },
             transaction: t,
           });
@@ -315,15 +316,15 @@ const deactivateExpiredSubscriptions = async () => {
           await User.update({
             has_active_subscription: false,
             current_subscription_end: null,
-          }, { 
+          }, {
             where: { id: userId },
             transaction: t,
           });
         }
       }
-      
+
       await t.commit();
-      
+
       logger.info(`${expiredSubscriptions.length} expired subscriptions marked as inactive`);
       return { deactivated: expiredSubscriptions.length };
     } catch (error) {
@@ -346,14 +347,14 @@ const cleanupOldSubscriptions = async (dryRun = false) => {
     const retentionDays = intFromEnv('SUBSCRIPTION_HISTORY_RETENTION_DAYS', 90);
     const cutoff = getDateDaysAgo(retentionDays);
     const batchLimit = intFromEnv('CLEANUP_DELETE_LIMIT', 5000);
-    
+
     let total = 0;
     while (true) {
       const rows = await SubscriptionTransaction.findAll({
         attributes: ['id'],
         where: {
           is_active: false,
-          expires_at: { [sequelize.Op.lt]: cutoff },
+          expires_at: { [Op.lt]: cutoff },
         },
         limit: batchLimit,
       });
@@ -386,7 +387,7 @@ const expirePendingTransactions = async () => {
       {
         where: {
           status: 'pending',
-          expires_at: { [sequelize.Op.lt]: now },
+          expires_at: { [Op.lt]: now },
         },
       }
     );
@@ -413,21 +414,21 @@ const purgeStaleTransactions = async (dryRun = false) => {
         name: 'pending',
         where: {
           status: 'pending',
-          expires_at: { [sequelize.Op.lt]: getDateDaysAgo(pendingDays) },
+          expires_at: { [Op.lt]: getDateDaysAgo(pendingDays) },
         },
       },
       {
         name: 'failed',
         where: {
           status: 'failed',
-          created_at: { [sequelize.Op.lt]: getDateDaysAgo(failedDays) },
+          created_at: { [Op.lt]: getDateDaysAgo(failedDays) },
         },
       },
       {
         name: 'expired',
         where: {
           status: 'expired',
-          expires_at: { [sequelize.Op.lt]: getDateDaysAgo(expiredDays) },
+          expires_at: { [Op.lt]: getDateDaysAgo(expiredDays) },
         },
       },
     ];
