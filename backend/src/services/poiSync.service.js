@@ -299,7 +299,7 @@ const syncRegionIfNeeded = async (lat, lng, radius, priority = 'medium', force =
     const pointsBeforeCount = await countPOIsInRegion(lat, lng, radius);
 
     // Sincronizar a região
-    await googleMapsService.syncRegionPOIs(lat, lng, radius, types);
+    const syncResult = await googleMapsService.syncRegionPOIs(lat, lng, radius, types);
 
     // Contar POIs depois da sincronização
     const pointsAfterCount = await countPOIsInRegion(lat, lng, radius);
@@ -312,7 +312,9 @@ const syncRegionIfNeeded = async (lat, lng, radius, priority = 'medium', force =
     return {
       updated: true,
       count: pointsAfterCount,
-      added: pointsAfterCount - pointsBeforeCount
+      added: pointsAfterCount - pointsBeforeCount,
+      googleTotal: syncResult?.totalPOIs ?? null,
+      details: syncResult?.details ?? null,
     };
   } catch (error) {
     // Remover do conjunto de sincronizações pendentes em caso de erro

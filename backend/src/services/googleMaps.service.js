@@ -84,6 +84,7 @@ const syncRegionPOIs = async (lat, lng, radius, types = undefined) => {
     logger.info(`Synchronizing POIs for region: ${lat}, ${lng}, radius: ${radius}km`);
 
     let totalPOIs = 0;
+    const details = [];
 
     // Convert radius from kilometers to meters for Google Maps API
     const radiusInMeters = radius * 1000;
@@ -150,8 +151,16 @@ const syncRegionPOIs = async (lat, lng, radius, types = undefined) => {
           pageToken = response?.data?.next_page_token || null;
           pageIndex += 1;
         } while (pageToken && pageIndex < MAX_PAGES);
+
+        details.push({
+          type: poiKey,
+          googleStatus: response?.data?.status || 'UNKNOWN',
+          pages: pageIndex,
+          added: totalPOIs - (details.reduce((s, d) => s + (d.added || 0), 0)),
+        });
       } catch (error) {
         logger.error(`Error fetching ${poiKey} POIs:`, error);
+        details.push({ type: poiKey, error: error.message });
         // Continue with other POI types even if one fails
       }
 
@@ -250,7 +259,7 @@ const syncRegionPOIs = async (lat, lng, radius, types = undefined) => {
     }
 
     logger.info(`Sync completed. Total POIs synchronized: ${totalPOIs}`);
-    return totalPOIs;
+    return { totalPOIs, details };
   } catch (error) {
     logger.error('Error in syncRegionPOIs:', error);
     throw error;
