@@ -58,15 +58,35 @@ const poiSyncService = require('../services/poiSync.service');
  */
 router.post('/pois/sync-region', authenticate, isAdmin, async (req, res) => {
   try {
-    const { lat, lng, radius = 5, priority = 'medium', types, force = false } = req.body || {};
+    const { lat, lng, radius = 5, priority = 'medium', types, force = false, wait = false } = req.body || {};
     if (typeof lat !== 'number' || typeof lng !== 'number') {
       return res.status(400).json({ success: false, message: 'lat and lng must be numbers' });
     }
-    const result = await poiSyncService.syncRegionIfNeeded(lat, lng, radius, priority, !!force, types);
-    return res.status(200).json({ success: true, data: result });
+
+    if (wait) {
+      const result = await poiSyncService.syncRegionIfNeeded(lat, lng, radius, priority, !!force, types);
+      return res.status(200).json({ success: true, data: result });
+    }
+
+    const jobId = poiSyncService.startRegionSyncJob(lat, lng, radius, priority, !!force, types);
+    return res.status(202).json({ success: true, data: { jobId } });
   } catch (error) {
     logger.error('Error syncing POI region:', error);
     return res.status(500).json({ success: false, message: 'Failed to sync region', error: error.message });
+  }
+});
+
+router.get('/pois/sync-region/status/:jobId', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = poiSyncService.getRegionSyncJobStatus(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+    return res.status(200).json({ success: true, data: job });
+  } catch (error) {
+    logger.error('Error getting region sync job status:', error);
+    return res.status(500).json({ success: false, message: 'Failed to get job status', error: error.message });
   }
 });
 

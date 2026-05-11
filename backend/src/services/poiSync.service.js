@@ -8,6 +8,7 @@ const logger = require('../utils/logger');
 const googleMapsService = require('./googleMaps.service');
 const { SYNC_CONFIG } = require('../config/pois.config');
 const cacheService = require('./cache.service');
+const crypto = require('crypto');
 
 // Armazenamento temporário do histórico de sincronização
 // Em produção, isto poderia ser armazenado no banco de dados
@@ -15,6 +16,9 @@ const syncHistory = new Map();
 
 // Tracking de requisições de sincronização em andamento
 const pendingSyncs = new Set();
+
+// Tracking de jobs de sincronização (in-memory)
+const syncJobs = new Map();
 
 // Coordenadas que delimitam Angola
 const ANGOLA_BOUNDS = {
@@ -34,17 +38,17 @@ const LUANDA_BOUNDS = {
 
 // Hotspots (municípios/bairros) da região de Luanda com coordenadas aproximadas
 const LUANDA_HOTSPOTS = [
-  { name: 'Ingombota',     lat: -8.812, lng: 13.235 },
-  { name: 'Maianga',       lat: -8.839, lng: 13.228 },
-  { name: 'Sambizanga',    lat: -8.785, lng: 13.229 },
-  { name: 'Cazenga',       lat: -8.807, lng: 13.279 },
-  { name: 'Viana',         lat: -8.902, lng: 13.368 },
-  { name: 'Cacuaco',       lat: -8.804, lng: 13.369 },
-  { name: 'Talatona',      lat: -8.938, lng: 13.204 },
-  { name: 'Kilamba',       lat: -8.995, lng: 13.205 },
-  { name: 'Belas',         lat: -9.082, lng: 13.177 },
+  { name: 'Ingombota', lat: -8.812, lng: 13.235 },
+  { name: 'Maianga', lat: -8.839, lng: 13.228 },
+  { name: 'Sambizanga', lat: -8.785, lng: 13.229 },
+  { name: 'Cazenga', lat: -8.807, lng: 13.279 },
+  { name: 'Viana', lat: -8.902, lng: 13.368 },
+  { name: 'Cacuaco', lat: -8.804, lng: 13.369 },
+  { name: 'Talatona', lat: -8.938, lng: 13.204 },
+  { name: 'Kilamba', lat: -8.995, lng: 13.205 },
+  { name: 'Belas', lat: -9.082, lng: 13.177 },
   { name: 'Icolo e Bengo', lat: -9.378, lng: 14.898 },
-  { name: 'Quiçama',       lat: -9.446, lng: 13.108 }
+  { name: 'Quiçama', lat: -9.446, lng: 13.108 }
 ];
 
 // Função para calcular a distância haversine
@@ -140,9 +144,9 @@ const needsUpdate = async (regionKey, priority = 'medium') => {
     // Try in-memory cache first
     let lastSync = syncHistory.get(regionKey);
     if (!lastSync) {
-      const redisVal = await cacheService.redisClient.get(`sync:region:${regionKey}`);
-      if (redisVal) {
-        lastSync = new Date(redisVal);
+      const storedVal = await cacheService.get(`sync:region:${regionKey}`);
+      if (storedVal) {
+        lastSync = new Date(storedVal);
         syncHistory.set(regionKey, lastSync);
       }
     }
@@ -175,12 +179,68 @@ const recordSync = async (regionKey) => {
   try {
     const now = new Date();
     syncHistory.set(regionKey, now);
-    await cacheService.redisClient.set(`sync:region:${regionKey}`, now.toISOString());
+    await cacheService.set(`sync:region:${regionKey}`, now.toISOString());
   } catch (err) {
     logger.error('recordSync redis error:', err);
   } finally {
     pendingSyncs.delete(regionKey);
   }
+};
+
+const createJobId = () => {
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+const startRegionSyncJob = (lat, lng, radius, priority = 'medium', force = false, types = undefined) => {
+  const jobId = createJobId();
+  const payload = { lat, lng, radius, priority, force: !!force, types };
+
+  syncJobs.set(jobId, {
+    jobId,
+    type: 'sync-region',
+    status: 'queued',
+    payload,
+    createdAt: new Date().toISOString(),
+    startedAt: null,
+    finishedAt: null,
+    result: null,
+    error: null,
+  });
+
+  setImmediate(async () => {
+    const job = syncJobs.get(jobId);
+    if (!job) return;
+    job.status = 'running';
+    job.startedAt = new Date().toISOString();
+    syncJobs.set(jobId, job);
+
+    try {
+      const result = await syncRegionIfNeeded(lat, lng, radius, priority, !!force, types);
+      const updatedJob = syncJobs.get(jobId);
+      if (!updatedJob) return;
+      updatedJob.status = 'completed';
+      updatedJob.finishedAt = new Date().toISOString();
+      updatedJob.result = result;
+      syncJobs.set(jobId, updatedJob);
+    } catch (err) {
+      const updatedJob = syncJobs.get(jobId);
+      if (!updatedJob) return;
+      updatedJob.status = 'failed';
+      updatedJob.finishedAt = new Date().toISOString();
+      updatedJob.error = err && err.message ? err.message : String(err);
+      syncJobs.set(jobId, updatedJob);
+      logger.error(`Region sync job failed (jobId=${jobId}):`, err);
+    }
+  });
+
+  return jobId;
+};
+
+const getRegionSyncJobStatus = (jobId) => {
+  return syncJobs.get(jobId) || null;
 };
 
 /**
@@ -203,19 +263,19 @@ const isSyncInProgress = (regionKey) => {
  */
 const syncRegionIfNeeded = async (lat, lng, radius, priority = 'medium', force = false, types = undefined) => {
   const regionKey = `${lat},${lng},${radius}`;
-  
+
   // Verificar se está em Angola
   if (!isInAngola(lat, lng)) {
     logger.info(`Região ${regionKey} está fora de Angola - sincronização não permitida`);
     return { updated: false, count: 0, message: 'Região fora de Angola' };
   }
-  
+
   // Verificar se já está sendo sincronizada
   if (isSyncInProgress(regionKey)) {
     logger.info(`Região ${regionKey} já está em processo de sincronização`);
     return { updated: false, count: 0, message: 'Sincronização já em andamento' };
   }
-  
+
   // Verificar se precisa atualizar
   if (!force) {
     const updateNeeded = await needsUpdate(regionKey, priority);
@@ -224,29 +284,29 @@ const syncRegionIfNeeded = async (lat, lng, radius, priority = 'medium', force =
       return { updated: false, count: 0 };
     }
   }
-  
+
   try {
     // Marcar que está sincronizando
     pendingSyncs.add(regionKey);
-    
+
     // Contar POIs existentes na região antes da sincronização
     const pointsBeforeCount = await countPOIsInRegion(lat, lng, radius);
-    
+
     // Sincronizar a região
     await googleMapsService.syncRegionPOIs(lat, lng, radius, types);
-    
+
     // Contar POIs depois da sincronização
     const pointsAfterCount = await countPOIsInRegion(lat, lng, radius);
-    
+
     // Registrar a sincronização
     await recordSync(regionKey);
-    
+
     logger.info(`Região ${regionKey} sincronizada com sucesso. POIs antes: ${pointsBeforeCount}, depois: ${pointsAfterCount}`);
-    
-    return { 
-      updated: true, 
+
+    return {
+      updated: true,
       count: pointsAfterCount,
-      added: pointsAfterCount - pointsBeforeCount 
+      added: pointsAfterCount - pointsBeforeCount
     };
   } catch (error) {
     // Remover do conjunto de sincronizações pendentes em caso de erro
@@ -266,18 +326,18 @@ const syncRegionIfNeeded = async (lat, lng, radius, priority = 'medium', force =
 const countPOIsInRegion = async (lat, lng, radius) => {
   try {
     const distanceQuery = haversineDistanceQuery(lat, lng);
-    
+
     const countQuery = `
       SELECT COUNT(*) AS count 
       FROM "points_of_interest"
       WHERE ${distanceQuery} <= ${radius}
     `;
-    
+
     const result = await sequelize.query(countQuery, {
       type: sequelize.QueryTypes.SELECT,
       plain: true
     });
-    
+
     return parseInt(result.count, 10) || 0;
   } catch (error) {
     logger.error(`Erro ao contar POIs na região ${lat},${lng},${radius}:`, error);
@@ -401,6 +461,8 @@ module.exports = {
   syncRegionIfNeeded,
   needsUpdate,
   recordSync,
+  startRegionSyncJob,
+  getRegionSyncJobStatus,
   isInAngola,
   getSyncStats,
   generateAngolaGrid,

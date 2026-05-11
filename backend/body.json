@@ -1,0 +1,8 @@
+﻿{
+  "lat": -8.995,
+  "lng": 13.205,
+  "radius": 1,
+  "priority": "high",
+  "types": ["atm"],
+  "force": false
+}
