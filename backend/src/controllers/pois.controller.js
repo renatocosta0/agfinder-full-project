@@ -126,37 +126,9 @@ const getPOIById = async (req, res) => {
     const { id } = req.params;
     const { refresh } = req.query;
 
+    // Otimizado: Buscar POI sem includes aninhados para evitar N+1
     const poi = await PointOfInterest.findByPk(id, {
-      include: [
-        {
-          model: Contribution,
-          as: 'contributions',
-          where: {
-            is_current: true,
-          },
-          required: false,
-          attributes: ['id', 'poi_id', 'user_id', 'contribution_type', 'is_current', 'created_at'],
-          include: [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['id', 'name', 'profile_picture'],
-            },
-            {
-              model: Validation,
-              as: 'validations',
-              attributes: ['id', 'validation_type', 'created_at'],
-              include: [
-                {
-                  model: User,
-                  as: 'user',
-                  attributes: ['id', 'name', 'profile_picture'],
-                },
-              ],
-            },
-          ],
-        },
-      ],
+      attributes: ['id', 'poi_type', 'google_place_id', 'name', 'address', 'latitude', 'longitude', 'google_data', 'last_sync_at', 'updated_at', 'reliability_score', 'status', 'version'],
     });
 
     if (!poi) {
@@ -164,6 +136,66 @@ const getPOIById = async (req, res) => {
         status: 'error',
         message: 'Point of interest not found',
       });
+    }
+
+    // Buscar contribution atual separadamente com includes otimizados
+    const currentContribution = await Contribution.findOne({
+      where: {
+        poi_id: id,
+        is_current: true,
+      },
+      attributes: ['id', 'poi_id', 'user_id', 'contribution_type', 'is_current', 'created_at', 'expires_at'],
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'name', 'profile_picture'],
+        },
+      ],
+      required: false,
+    });
+
+    // Buscar validations separadamente em batch
+    let validations = [];
+    let reports = [];
+    if (currentContribution) {
+      const allValidations = await Validation.findAll({
+        where: {
+          contribution_id: currentContribution.id,
+        },
+        attributes: ['id', 'validation_type', 'created_at', 'user_id'],
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id', 'name', 'profile_picture'],
+          },
+        ],
+      });
+
+      validations = allValidations
+        .filter(v => v.validation_type === 'valid')
+        .map(v => ({
+          id: v.id,
+          created_at: v.created_at,
+          user: {
+            id: v.user.id,
+            name: v.user.name,
+            profile_picture: v.user.profile_picture,
+          },
+        }));
+
+      reports = allValidations
+        .filter(v => v.validation_type === 'report')
+        .map(v => ({
+          id: v.id,
+          created_at: v.created_at,
+          user: {
+            id: v.user.id,
+            name: v.user.name,
+            profile_picture: v.user.profile_picture,
+          },
+        }));
     }
 
     // Se refresh=true, atualizar dados do POI com o Google Maps
@@ -193,37 +225,6 @@ const getPOIById = async (req, res) => {
         logger.error(`Erro ao atualizar dados do POI ${id} do Google Maps:`, error);
         // Continuar com os dados existentes em caso de erro
       }
-    }
-
-    const currentContribution = poi.contributions[0] || null;
-
-    let validations = [];
-    let reports = [];
-
-    if (currentContribution) {
-      validations = currentContribution.validations
-        .filter(v => v.validation_type === 'valid')
-        .map(v => ({
-          id: v.id,
-          created_at: v.created_at,
-          user: {
-            id: v.user.id,
-            name: v.user.name,
-            profile_picture: v.user.profile_picture,
-          },
-        }));
-
-      reports = currentContribution.validations
-        .filter(v => v.validation_type === 'report')
-        .map(v => ({
-          id: v.id,
-          created_at: v.created_at,
-          user: {
-            id: v.user.id,
-            name: v.user.name,
-            profile_picture: v.user.profile_picture,
-          },
-        }));
     }
 
     // Calcular a idade dos dados

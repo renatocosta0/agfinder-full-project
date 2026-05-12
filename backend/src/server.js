@@ -12,6 +12,7 @@ const openApiComponents = require('./docs/components');
 const dotenv = require('dotenv');
 const { sequelize } = require('./models');
 const logger = require('./utils/logger');
+const { sentryRequestHandler, sentryErrorHandler } = require('./utils/sentry');
 // Lazy-initialized job modules
 let cron;
 let scheduler;
@@ -135,6 +136,9 @@ app.use(cors(getCorsOptions(isDevelopment)));
 // Parser de JSON
 app.use(express.json());
 
+// Sentry request handler (deve vir antes de outros middlewares)
+app.use(sentryRequestHandler);
+
 // Logging
 app.use(morgan('combined', { stream: logger.stream }));
 
@@ -144,20 +148,39 @@ const maxRequests = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10);
 const windowMs = Number.isFinite(windowMinutes) ? windowMinutes * 60 * 1000 : 15 * 60 * 1000;
 const max = Number.isFinite(maxRequests) ? maxRequests : 100;
 
-let limiterOptions = {
+// Rate limiting para usuários anônimos (mais restritivo)
+const anonymousLimiterOptions = {
   windowMs,
-  max,
-  message: 'Too many requests from this IP, please try again after a while',
+  max: Math.floor(max * 0.3), // 30% do limite para anônimos
+  message: 'Too many requests from this IP. Please sign in for higher limits.',
+  keyGenerator: (req) => {
+    return req.ip; // Rate limit por IP
+  }
 };
 
+// Rate limiting para usuários autenticados (mais permissivo)
+const authenticatedLimiterOptions = {
+  windowMs,
+  max: max, // Limite completo para autenticados
+  message: 'Too many requests. Please try again later.',
+  keyGenerator: (req) => {
+    return req.user?.id || req.ip; // Rate limit por user ID ou IP
+  },
+  skip: (req) => !req.user // Pular se não estiver autenticado
+};
+
+// Configurar store Redis se disponível
+let redisStore;
 if (process.env.REDIS_URL && process.env.NODE_ENV === 'production') {
   try {
     const parsed = new URL(process.env.REDIS_URL);
     if (!parsed.port) parsed.port = '6379';
     const redisClient = new Redis(process.env.REDIS_URL);
-    limiterOptions.store = new RedisStore({
+    redisStore = new RedisStore({
       sendCommand: (...args) => redisClient.call(...args),
     });
+    anonymousLimiterOptions.store = redisStore;
+    authenticatedLimiterOptions.store = redisStore;
     logger.info('Rate limiting configured with Redis store');
   } catch (e) {
     logger.warn('Failed to connect to Redis for rate limiting, using in-memory store:', e.message || e);
@@ -167,8 +190,17 @@ if (process.env.REDIS_URL && process.env.NODE_ENV === 'production') {
   logger.info('Rate limiting configured with in-memory store');
 }
 
-const limiter = rateLimit(limiterOptions);
-app.use('/api', limiter);
+const anonymousLimiter = rateLimit(anonymousLimiterOptions);
+const authenticatedLimiter = rateLimit(authenticatedLimiterOptions);
+
+// Aplicar rate limiters
+app.use('/api', (req, res, next) => {
+  if (req.user) {
+    return authenticatedLimiter(req, res, next);
+  } else {
+    return anonymousLimiter(req, res, next);
+  }
+});
 
 // Swagger definition
 const swaggerOptions = {
@@ -240,6 +272,9 @@ app.use((err, req, res, next) => {
     ...(isDevelopment && { stack: err.stack })
   });
 });
+
+// Sentry error handler (deve vir depois de todos os outros middlewares)
+app.use(sentryErrorHandler);
 
 // Start the server
 let server;
