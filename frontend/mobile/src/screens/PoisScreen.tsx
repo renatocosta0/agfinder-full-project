@@ -225,13 +225,14 @@ export default function PoisScreen() {
       const center = centerOverride ?? coords ?? DEFAULT_CENTER;
       const requestedType = mapApiType(poiType);
       const isSearching = searchQuery.trim().length > 0;
-      const radius = 15;
+      // When orderBy is 'recent' or 'reports', use a very large radius to fetch from entire database
+      const radius = (orderBy === 'recent' || orderBy === 'reports') ? 5000 : 15;
       const pageToLoad = reset ? 1 : (nextPage ?? page + 1);
       const limit = 20;
-      try { console.log('[fetchPois] request', { lat: center.lat, lng: center.lng, radius, type: requestedType, page: pageToLoad, limit, q: searchQuery, search: isSearching }); } catch { }
+      try { console.log('[fetchPois] request', { lat: center.lat, lng: center.lng, radius, type: requestedType, page: pageToLoad, limit, q: searchQuery, search: isSearching, orderBy }); } catch { }
       const { pois: apiPois, pagination } = isSearching
         ? await getPoisSearch({ q: searchQuery.trim(), page: pageToLoad, limit, include_contributions: true })
-        : await getPois({ lat: center.lat, lng: center.lng, radius, type: requestedType, include_contributions: true, page: pageToLoad, limit, forceRefresh: !!forceRefresh });
+        : await getPois({ lat: center.lat, lng: center.lng, radius, type: requestedType, include_contributions: true, page: pageToLoad, limit, forceRefresh: !!forceRefresh, orderBy });
       try { console.log('[fetchPois] response.count', apiPois.length, 'page', pagination?.page, 'pages', pagination?.pages); } catch { }
       let mapped = apiPois.map(mapListItemToPoi);
       // Ensure distance is present also for search results
@@ -280,6 +281,14 @@ export default function PoisScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poiType]);
+
+  useEffect(() => {
+    // Refetch when orderBy changes to fetch from entire database for 'recent' and 'reports'
+    if (initialFetchDoneRef.current) {
+      fetchPois(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderBy]);
 
   useEffect(() => {
     (async () => {
