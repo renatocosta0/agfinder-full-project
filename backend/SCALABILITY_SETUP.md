@@ -42,7 +42,7 @@ Adicione estas variáveis de ambiente no painel do Render:
 
 ### Obrigatórias
 ```
-SENTRY_DSN=your_sentry_dsn_here
+SENTRY_DSN=https://ba33d7d7129fd16bf2189759d646e988@o4511378988597248.ingest.de.sentry.io/4511378994364496
 SENTRY_TRACES_SAMPLE_RATE=0.1
 ```
 
