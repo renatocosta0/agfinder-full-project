@@ -15,7 +15,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import BottomTabBar from '../components/BottomTabBar';
 import ContributionModal, { StatusType as CMStatusType } from '../components/ContributionModal';
@@ -79,6 +79,10 @@ export default function PoisScreen() {
   const [error, setError] = useState<string | null>(null);
   const [initialFetchDone, setInitialFetchDone] = useState(false);
   const timerRef = useRef<NodeJS.Timer | null>(null);
+  const watchIdRef = useRef<Location.LocationSubscription | null>(null);
+  const watchIdWebRef = useRef<number | null>(null);
+  const lastLocationUpdateRef = useRef<number>(0);
+  const previousCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -158,6 +162,26 @@ export default function PoisScreen() {
   };
 
   const formatSince = formatSinceShared;
+
+  // Recalculate distances for all POIs when user location changes (optimized with useMemo)
+  const updatePoiDistances = useMemo(() => (newCoords: { lat: number; lng: number }) => {
+    setPois((prev) =>
+      prev.map((p) => {
+        // Use the original coordinates from the API response if available
+        const lat = Number(p.latitude ?? p.lat);
+        const lng = Number(p.longitude ?? p.lng);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          const newDistance = haversineKm(newCoords.lat, newCoords.lng, lat, lng);
+          // Only update if distance changed significantly (> 10m) to avoid unnecessary re-renders
+          const oldDistance = p.distance;
+          if (Math.abs(newDistance - oldDistance) > 0.01) {
+            return { ...p, distance: newDistance };
+          }
+        }
+        return p;
+      })
+    );
+  }, []);
 
   const mapListItemToPoi = (p: PoiListItemApi): Poi => {
     const uiType = mapUiType(p.poi_type);
@@ -297,8 +321,7 @@ export default function PoisScreen() {
       } catch { }
 
       if (isWeb) {
-        // Web: wait for geolocation (higher accuracy) before first fetch to avoid wrong "Nearest".
-        // Fallback to DEFAULT_CENTER only if permission denied / timeout.
+        // Web: use watchPosition for continuous tracking
         setLoading(true);
         setError(null);
         let centerToUse: { lat: number; lng: number } | null = null;
@@ -316,125 +339,279 @@ export default function PoisScreen() {
             Alert.alert(title, message);
           };
 
-          try {
-            const permApi = navAny?.permissions?.query;
-            if (typeof permApi === 'function') {
-              const perm = await navAny.permissions.query({ name: 'geolocation' });
-              try { console.log('[web geolocation] permission state:', perm?.state); } catch { }
-            } else {
-              try { console.log('[web geolocation] Permissions API not available'); } catch { }
-            }
-          } catch (permErr: any) {
-            try { console.log('[web geolocation] permissions.query error', permErr); } catch { }
-          }
-
-          const getBrowserPosition = () =>
-            new Promise<{ lat: number; lng: number; accuracy?: number }>((resolve, reject) => {
-              if (!navAny?.geolocation?.getCurrentPosition) {
-                reject(new Error('Geolocation is not available'));
-                return;
-              }
-              navAny.geolocation.getCurrentPosition(
-                (pos: any) => {
-                  resolve({
-                    lat: pos.coords.latitude,
-                    lng: pos.coords.longitude,
-                    accuracy: pos.coords.accuracy,
-                  });
-                },
-                (err: any) => reject(err),
-                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-              );
-            });
-
           if (!secureContext) {
             webAlert(
               'Localização indisponível',
-              'No Edge, a geolocalização só funciona em https:// ou em http://localhost. Abra a web pelo localhost ou publique com HTTPS para o “Nearest” ficar correto.'
+              'No Edge, a geolocalização só funciona em https:// ou em http://localhost. Abra a web pelo localhost ou publique com HTTPS para o "Nearest" ficar correto.'
             );
-          } else {
-            try {
-              const browserPos = await getBrowserPosition();
-              if (Number.isFinite(browserPos.lat) && Number.isFinite(browserPos.lng)) {
-                centerToUse = { lat: browserPos.lat, lng: browserPos.lng };
-                setCoords(centerToUse);
-              }
-              try {
-                await recordUserLocation({
-                  lat: browserPos.lat,
-                  lng: browserPos.lng,
-                  accuracy: browserPos.accuracy ?? undefined,
-                  source: 'app',
-                  recordedAt: new Date().toISOString(),
-                });
-              } catch { }
-            } catch (geoErr: any) {
-              try {
-                console.log('[web geolocation] error', {
-                  code: geoErr?.code,
-                  message: geoErr?.message,
-                  geoErr,
-                });
-              } catch { }
-              webAlert(
-                'Permissão de localização',
-                `O Edge não liberou sua localização. Verifique:\n\n1) Windows: Configurações -> Privacidade e segurança -> Localização = Ativado\n2) Edge: Site settings -> Location = Allow\n3) Recarregue a página`
-              );
-            }
+            await fetchPois(true, 1, true, DEFAULT_CENTER);
+            return;
           }
-        } catch {
-          // ignore
+
+          if (!navAny?.geolocation?.watchPosition) {
+            webAlert('Geolocalização não disponível', 'Seu navegador não suporta geolocalização.');
+            await fetchPois(true, 1, true, DEFAULT_CENTER);
+            return;
+          }
+
+          // Use watchPosition for continuous tracking
+          watchIdWebRef.current = navAny.geolocation.watchPosition(
+            (pos: any) => {
+              const now = Date.now();
+              // Throttle updates to once per second
+              if (now - lastLocationUpdateRef.current < 1000) return;
+              lastLocationUpdateRef.current = now;
+
+              const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+              const prevCoords = previousCoordsRef.current;
+
+              // Calculate distance moved
+              let distanceMoved = 0;
+              if (prevCoords) {
+                distanceMoved = haversineKm(prevCoords.lat, prevCoords.lng, newCoords.lat, newCoords.lng);
+              }
+
+              setCoords(newCoords);
+              previousCoordsRef.current = newCoords;
+
+              // Update distances for existing POIs
+              updatePoiDistances(newCoords);
+
+              // Refetch if moved > 1km
+              if (distanceMoved > 1) {
+                fetchPois(true, 1, true, newCoords);
+              }
+
+              // Record location to backend
+              recordUserLocation({
+                lat: newCoords.lat,
+                lng: newCoords.lng,
+                accuracy: pos.coords.accuracy ?? undefined,
+                source: 'app',
+                recordedAt: new Date().toISOString(),
+              }).catch(() => { });
+            },
+            (err: any) => {
+              console.log('[web geolocation watch error]', err);
+              if (err.code === 1) { // PERMISSION_DENIED
+                webAlert('Permissão de localização', 'Por favor, habilite a localização no seu navegador.');
+              }
+            },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+          );
+
+          // Get initial position for first fetch
+          try {
+            const browserPos = await new Promise<{ lat: number; lng: number; accuracy?: number }>((resolve, reject) => {
+              navAny.geolocation.getCurrentPosition(
+                (pos: any) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+                reject,
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+              );
+            });
+            if (Number.isFinite(browserPos.lat) && Number.isFinite(browserPos.lng)) {
+              centerToUse = { lat: browserPos.lat, lng: browserPos.lng };
+              setCoords(centerToUse);
+              previousCoordsRef.current = centerToUse;
+            }
+          } catch (geoErr: any) {
+            console.log('[web geolocation initial error]', geoErr);
+          }
+
+          await fetchPois(true, 1, true, centerToUse || DEFAULT_CENTER);
+          return;
+        } catch (e) {
+          console.error('[web geolocation setup error]', e);
+          await fetchPois(true, 1, true, DEFAULT_CENTER);
+          return;
         }
-        await fetchPois(true, 1, true, centerToUse);
-        return;
       }
 
+      // Mobile: use Expo Location.watchPositionAsync for continuous tracking
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
+          Alert.alert('Permissão necessária', 'Por favor, habilite a localização para ver POIs próximos.');
+          await fetchPois(true, 1, true, DEFAULT_CENTER);
           return;
         }
+
+        watchIdRef.current = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 1000, distanceInterval: 10 },
+          (pos) => {
+            const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            const prevCoords = previousCoordsRef.current;
+
+            // Calculate distance moved
+            let distanceMoved = 0;
+            if (prevCoords) {
+              distanceMoved = haversineKm(prevCoords.lat, prevCoords.lng, newCoords.lat, newCoords.lng);
+            }
+
+            setCoords(newCoords);
+            previousCoordsRef.current = newCoords;
+
+            // Update distances for existing POIs
+            updatePoiDistances(newCoords);
+
+            // Refetch if moved > 1km
+            if (distanceMoved > 1) {
+              fetchPois(true, 1, true, newCoords);
+            }
+
+            // Record location to backend
+            recordUserLocation({
+              lat: newCoords.lat,
+              lng: newCoords.lng,
+              accuracy: pos.coords.accuracy ?? undefined,
+              source: 'app',
+              recordedAt: new Date().toISOString(),
+            }).catch(() => { });
+          }
+        );
+
+        // Get initial position for first fetch
         const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        try {
-          await recordUserLocation({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            accuracy: pos.coords.accuracy ?? undefined,
-            source: 'app',
-            recordedAt: new Date().toISOString(),
-          });
-        } catch { }
+        previousCoordsRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       } catch (e) {
-        // ignore and keep default center
+        console.error('[mobile geolocation error]', e);
+        await fetchPois(true, 1, true, DEFAULT_CENTER);
+        return;
       }
+
+      await fetchPois(true, 1, true, coords || DEFAULT_CENTER);
     })();
+
+    // Cleanup: stop watching position on unmount
+    return () => {
+      if (watchIdRef.current !== null) {
+        watchIdRef.current.remove();
+        watchIdRef.current = null;
+      }
+      if (watchIdWebRef.current !== null) {
+        const navAny: any = typeof navigator !== 'undefined' ? (navigator as any) : null;
+        if (navAny?.geolocation?.clearWatch) {
+          navAny.geolocation.clearWatch(watchIdWebRef.current);
+        }
+        watchIdWebRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWeb]);
+
+  // Pause/resume location tracking based on app state (mobile) or visibility (web)
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // Pause tracking when app goes to background
+        if (watchIdRef.current !== null) {
+          watchIdRef.current.remove();
+          watchIdRef.current = null;
+        }
+      } else if (nextAppState === 'active') {
+        // Resume tracking when app comes to foreground
+        if (watchIdRef.current === null && coords) {
+          Location.watchPositionAsync(
+            { accuracy: Location.Accuracy.Balanced, timeInterval: 1000, distanceInterval: 10 },
+            (pos) => {
+              const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+              const prevCoords = previousCoordsRef.current;
+
+              let distanceMoved = 0;
+              if (prevCoords) {
+                distanceMoved = haversineKm(prevCoords.lat, prevCoords.lng, newCoords.lat, newCoords.lng);
+              }
+
+              setCoords(newCoords);
+              previousCoordsRef.current = newCoords;
+              updatePoiDistances(newCoords);
+
+              if (distanceMoved > 1) {
+                fetchPois(true, 1, true, newCoords);
+              }
+
+              recordUserLocation({
+                lat: newCoords.lat,
+                lng: newCoords.lng,
+                accuracy: pos.coords.accuracy ?? undefined,
+                source: 'app',
+                recordedAt: new Date().toISOString(),
+              }).catch(() => { });
+            }
+          ).then((subscription) => {
+            watchIdRef.current = subscription;
+          });
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
+  }, [coords]);
+
+  // Web: pause/resume based on page visibility
+  useEffect(() => {
+    if (!isWeb) return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Pause tracking when tab is hidden
+        if (watchIdWebRef.current !== null) {
+          const navAny: any = typeof navigator !== 'undefined' ? (navigator as any) : null;
+          if (navAny?.geolocation?.clearWatch) {
+            navAny.geolocation.clearWatch(watchIdWebRef.current);
+          }
+          watchIdWebRef.current = null;
+        }
+      } else {
+        // Resume tracking when tab becomes visible
+        if (watchIdWebRef.current === null && coords) {
+          const navAny: any = typeof navigator !== 'undefined' ? (navigator as any) : null;
+          if (navAny?.geolocation?.watchPosition) {
+            watchIdWebRef.current = navAny.geolocation.watchPosition(
+              (pos: any) => {
+                const now = Date.now();
+                if (now - lastLocationUpdateRef.current < 1000) return;
+                lastLocationUpdateRef.current = now;
+
+                const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                const prevCoords = previousCoordsRef.current;
+
+                let distanceMoved = 0;
+                if (prevCoords) {
+                  distanceMoved = haversineKm(prevCoords.lat, prevCoords.lng, newCoords.lat, newCoords.lng);
+                }
+
+                setCoords(newCoords);
+                previousCoordsRef.current = newCoords;
+                updatePoiDistances(newCoords);
+
+                if (distanceMoved > 1) {
+                  fetchPois(true, 1, true, newCoords);
+                }
+
+                recordUserLocation({
+                  lat: newCoords.lat,
+                  lng: newCoords.lng,
+                  accuracy: pos.coords.accuracy ?? undefined,
+                  source: 'app',
+                  recordedAt: new Date().toISOString(),
+                }).catch(() => { });
+              },
+              (err: any) => console.log('[web geolocation watch error]', err),
+              { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isWeb, coords]);
 
   // Fallback: if coords don't arrive quickly, perform an initial fetch with default center after a short timeout
-  useEffect(() => {
-    if (isWeb) return;
-    const t = setTimeout(() => {
-      if (!initialFetchDoneRef.current) {
-        fetchPois(true, 1, true);
-        initialFetchDoneRef.current = true;
-        setInitialFetchDone(true);
-      }
-    }, 2000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWeb]);
-
-  useEffect(() => {
-    // Refetch when coordinates become available; forceRefresh to bypass any cached defaults
-    if (isWeb) return;
-    if (coords) {
-      fetchPois(true, 1, true);
-      initialFetchDoneRef.current = true;
-      setInitialFetchDone(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coords, isWeb]);
 
   // Debounce search to avoid loops
   useEffect(() => {
