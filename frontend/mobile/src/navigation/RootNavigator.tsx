@@ -52,15 +52,19 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function AppNavigator() {
-  const { token } = useAuth();
+  const { token, hasCompletedOnboarding } = useAuth();
   const isWeb = Platform.OS === 'web';
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       {token ? (
         <>
-          <Stack.Screen name="Onboarding1" component={OnboardingSlide1} />
-          <Stack.Screen name="Onboarding2" component={OnboardingSlide2} />
-          <Stack.Screen name="Onboarding3" component={OnboardingSlide3} />
+          {!hasCompletedOnboarding ? (
+            <>
+              <Stack.Screen name="Onboarding1" component={OnboardingSlide1} />
+              <Stack.Screen name="Onboarding2" component={OnboardingSlide2} />
+              <Stack.Screen name="Onboarding3" component={OnboardingSlide3} />
+            </>
+          ) : null}
           <Stack.Screen name="Pois" component={PoisScreen} />
           <Stack.Screen name="PoiDetails" component={PoiDetailsScreen} />
           <Stack.Screen name="Help" component={HelpScreen} />

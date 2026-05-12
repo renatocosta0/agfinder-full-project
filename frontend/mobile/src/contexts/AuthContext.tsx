@@ -5,14 +5,17 @@ import { Platform } from 'react-native';
 interface AuthContextValue {
   token: string | null;
   setToken: (t: string | null) => Promise<void>;
+  hasCompletedOnboarding: boolean;
+  setOnboardingCompleted: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setTokenState] = useState<string | null>(null);
+  const [hasCompletedOnboarding, setOnboardingCompletedState] = useState(false);
 
-  // Load persisted token on mount so the user stays logged in after refresh
+  // Load persisted token and onboarding state on mount
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -28,6 +31,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
         if (!cancelled) setTokenState(stored);
+      } catch {
+        // ignore load errors
+      }
+
+      try {
+        let onboardingCompleted: string | null = null;
+        try {
+          onboardingCompleted = await SecureStore.getItemAsync('onboarding_completed');
+        } catch (e) {
+          if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            try {
+              onboardingCompleted = window.localStorage.getItem('onboarding_completed');
+            } catch { }
+          }
+        }
+        if (!cancelled) setOnboardingCompletedState(onboardingCompleted === 'true');
       } catch {
         // ignore load errors
       }
@@ -52,7 +71,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const value = useMemo(() => ({ token, setToken }), [token]);
+  const setOnboardingCompleted = async () => {
+    setOnboardingCompletedState(true);
+    try {
+      await SecureStore.setItemAsync('onboarding_completed', 'true');
+    } catch (e) {
+      // Fallback for web: use localStorage if available
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem('onboarding_completed', 'true');
+        } catch { }
+      }
+      // Ignore storage errors to not block app flow
+    }
+  };
+
+  const value = useMemo(() => ({ token, setToken, hasCompletedOnboarding, setOnboardingCompleted }), [token, hasCompletedOnboarding]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

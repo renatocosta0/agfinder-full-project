@@ -1,20 +1,27 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, PanResponder } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../navigation/RootNavigator';
 import { LinearGradient } from 'expo-linear-gradient';
+import React, { useMemo } from 'react';
+import { PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import GasStationUnit from '../../components/3D/GasStationUnit';
 import Particles from '../../components/3D/Particles';
+import { RootStackParamList } from '../../navigation/RootNavigator';
 
 type OnboardingNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Onboarding3'>;
 
 export default function OnboardingSlide3() {
   const navigation = useNavigation<OnboardingNavigationProp>();
+  const { setOnboardingCompleted } = useAuth();
+
+  const handleCompleteOnboarding = () => {
+    setOnboardingCompleted();
+    navigation.navigate('Pois');
+  };
+
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 20,
     onPanResponderRelease: (_, g) => {
-      if (g.dx < -30) navigation.navigate('Pois');
+      if (g.dx < -30) handleCompleteOnboarding();
       else if (g.dx > 30) navigation.navigate('Onboarding2');
     },
   }), [navigation]);
@@ -28,7 +35,7 @@ export default function OnboardingSlide3() {
       {...panResponder.panHandlers}
     >
       {/* Skip Button */}
-      <TouchableOpacity style={styles.skipButton} onPress={() => navigation.navigate('Pois')}>
+      <TouchableOpacity style={styles.skipButton} onPress={handleCompleteOnboarding}>
         <Text style={styles.skipText}>Skip</Text>
       </TouchableOpacity>
 
@@ -64,7 +71,7 @@ export default function OnboardingSlide3() {
       {/* Next Button */}
       <TouchableOpacity
         style={styles.nextButton}
-        onPress={() => navigation.navigate('Pois')}
+        onPress={handleCompleteOnboarding}
       >
         <Text style={styles.nextButtonText}>Next</Text>
       </TouchableOpacity>

@@ -1,16 +1,24 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, PanResponder } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../navigation/RootNavigator';
 import { LinearGradient } from 'expo-linear-gradient';
+import React, { useMemo } from 'react';
+import { PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import CombinedScene from '../../components/3D/CombinedScene';
 import Particles from '../../components/3D/Particles';
+import { useAuth } from '../../contexts/AuthContext';
+import { RootStackParamList } from '../../navigation/RootNavigator';
 
 type OnboardingNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Onboarding1'>;
 
 export default function OnboardingSlide1() {
   const navigation = useNavigation<OnboardingNavigationProp>();
+  const { setOnboardingCompleted } = useAuth();
+
+  const handleSkipOnboarding = () => {
+    setOnboardingCompleted();
+    navigation.navigate('Pois');
+  };
+
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 20,
     onPanResponderRelease: (_, gestureState) => {
@@ -29,7 +37,7 @@ export default function OnboardingSlide1() {
       {...panResponder.panHandlers}
     >
       {/* Skip Button */}
-      <TouchableOpacity style={styles.skipButton} onPress={() => navigation.navigate('Pois')}>
+      <TouchableOpacity style={styles.skipButton} onPress={handleSkipOnboarding}>
         <Text style={styles.skipText}>Skip</Text>
       </TouchableOpacity>
 
