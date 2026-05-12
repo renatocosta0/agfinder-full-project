@@ -1,23 +1,23 @@
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Image,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import HeroCarousel from '../components/HeroCarousel';
+import { useAuth } from '../contexts/AuthContext';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { register } from '../services/auth';
-import { useAuth } from '../contexts/AuthContext';
-import HeroCarousel from '../components/HeroCarousel';
 
 type RegisterScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Register'>;
 
@@ -119,6 +119,7 @@ export default function RegisterScreen() {
             placeholderTextColor="#666"
             value={name}
             onChangeText={setName}
+            onBlur={() => setName(name.trim())}
             autoCapitalize="words"
             editable={!loading}
           />
@@ -128,6 +129,7 @@ export default function RegisterScreen() {
             placeholderTextColor="#666"
             value={email}
             onChangeText={setEmail}
+            onBlur={() => setEmail(email.trim())}
             keyboardType="email-address"
             autoCapitalize="none"
             editable={!loading}
@@ -138,6 +140,7 @@ export default function RegisterScreen() {
             placeholderTextColor="#666"
             value={password}
             onChangeText={setPassword}
+            onBlur={() => setPassword(password.trim())}
             secureTextEntry
             editable={!loading}
           />
