@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   Image,
   ListRenderItem,
@@ -53,6 +54,9 @@ interface Poi {
   // milliseconds since current contribution was created; lower = more recent
   freshnessMs?: number;
   address?: string;
+  // Store original coordinates for distance recalculation
+  latitude?: number;
+  longitude?: number;
 }
 
 const DEFAULT_TTL_MINUTES = 30;
@@ -168,9 +172,9 @@ export default function PoisScreen() {
     setPois((prev) =>
       prev.map((p) => {
         // Use the original coordinates from the API response if available
-        const lat = Number(p.latitude ?? p.lat);
-        const lng = Number(p.longitude ?? p.lng);
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        const lat = p.latitude;
+        const lng = p.longitude;
+        if (lat !== undefined && lng !== undefined && Number.isFinite(lat) && Number.isFinite(lng)) {
           const newDistance = haversineKm(newCoords.lat, newCoords.lng, lat, lng);
           // Only update if distance changed significantly (> 10m) to avoid unnecessary re-renders
           const oldDistance = p.distance;
@@ -215,6 +219,8 @@ export default function PoisScreen() {
       lastUpdate: 'No updates today',
       freshnessMs: Number.MAX_SAFE_INTEGER,
       address: p.address,
+      latitude: p.location?.lat,
+      longitude: p.location?.lng,
     };
 
     const createdAt = (current as any)?.created_at || (current as any)?.createdAt;
@@ -500,9 +506,11 @@ export default function PoisScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWeb]);
 
-  // Pause/resume location tracking based on app state (mobile) or visibility (web)
+  // Pause/resume location tracking based on app state (mobile only)
   useEffect(() => {
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+    if (Platform.OS === 'web') return; // AppState is React Native only
+
+    const handleAppStateChange = (nextAppState: string) => {
       if (nextAppState === 'background' || nextAppState === 'inactive') {
         // Pause tracking when app goes to background
         if (watchIdRef.current !== null) {
@@ -548,7 +556,7 @@ export default function PoisScreen() {
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
-  }, [coords]);
+  }, [Platform.OS, coords]);
 
   // Web: pause/resume based on page visibility
   useEffect(() => {
