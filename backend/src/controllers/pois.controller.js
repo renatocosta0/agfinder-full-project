@@ -35,15 +35,13 @@ const getNearbyPOIs = async (req, res) => {
     const forceRefresh = envForce || rawFR === true || rawFR === '1' || (typeof rawFR === 'string' && rawFR.toLowerCase() === 'true');
     logger.info(`[getNearbyPOIs] forceRefresh=${forceRefresh} (envForce=${envForce}, raw='${rawFR}')`);
 
-    // lat/lng required only for 'nearest' or when not global mode
-    const isGlobal = orderBy === 'recent' || orderBy === 'reports';
-    if (!isGlobal && (!lat || !lng)) {
-      return res.status(400).json({ status: 'error', message: 'Latitude and longitude are required for nearest sorting' });
+    if (!lat || !lng) {
+      return res.status(400).json({ status: 'error', message: 'Latitude and longitude are required' });
     }
 
-    const latNum = isGlobal ? null : parseFloat(lat);
-    const lngNum = isGlobal ? null : parseFloat(lng);
-    const validRadius = isGlobal ? 9999 : Math.min(50, Math.max(0.1, parseFloat(radius)));
+    const latNum = parseFloat(lat);
+    const lngNum = parseFloat(lng);
+    const validRadius = Math.min(50, Math.max(0.1, parseFloat(radius)));
 
     // Delegate to service
     const serviceRes = await placesService.findPOIsFromDatabase(
@@ -56,8 +54,7 @@ const getNearbyPOIs = async (req, res) => {
         limit,
         sortBy: orderBy === 'nearest' ? 'distance' : orderBy,
         includeContributions: !req.limitedAccess,
-        forceRefresh,
-        isGlobal
+        forceRefresh
       }
     );
 

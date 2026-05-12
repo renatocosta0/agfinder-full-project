@@ -33,12 +33,11 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
     page = 1,
     limit = 20,
     sortBy = 'distance',
-    includeContributions = false,
-    isGlobal = false
+    includeContributions = false
   } = options;
 
-  // Validar coordenadas (apenas se fornecidas)
-  if (lat != null && lng != null && !geoUtils.isValidCoordinate(lat, lng)) {
+  // Validar coordenadas
+  if (!geoUtils.isValidCoordinate(lat, lng)) {
     throw new AppError('Coordenadas inválidas', 400);
   }
 
@@ -50,32 +49,29 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
   // Calcular offset para paginação
   const offset = (page - 1) * limit;
 
-  // Verificar cache primeiro (apenas quando não é global)
-  const cacheKey = isGlobal ? null : `pois:db:${type || 'all'}:${geoUtils.geoHashForCaching(lat, lng, radiusKm * 1000)}:p${page}:l${limit}`;
-  if (cacheKey) {
-    logger.info(`[places.findPOIsFromDatabase] cacheKey=${cacheKey} forceRefresh=${!!options.forceRefresh}`);
-    const cachedResults = options.forceRefresh ? null : await cacheService.get(cacheKey);
-    logger.info(`[places.findPOIsFromDatabase] cache ${cachedResults ? 'HIT' : 'MISS'} for ${cacheKey}`);
+  // Verificar cache primeiro
+  const cacheKey = `pois:db:${type || 'all'}:${geoUtils.geoHashForCaching(lat, lng, radiusKm * 1000)}:p${page}:l${limit}`;
+  logger.info(`[places.findPOIsFromDatabase] cacheKey=${cacheKey} forceRefresh=${!!options.forceRefresh}`);
+  const cachedResults = options.forceRefresh ? null : await cacheService.get(cacheKey);
+  logger.info(`[places.findPOIsFromDatabase] cache ${cachedResults ? 'HIT' : 'MISS'} for ${cacheKey}`);
 
-    if (cachedResults) {
-      logger.info(`Cache hit for ${cacheKey}`);
-      return {
-        ...cachedResults,
-        source: 'cache'
-      };
-    }
+  if (cachedResults) {
+    logger.info(`Cache hit for ${cacheKey}`);
+    return {
+      ...cachedResults,
+      source: 'cache'
+    };
   }
 
-  // Construir cláusula where
-  const whereClause = {};
-  if (!isGlobal && lat != null && lng != null) {
-    // Bounding box aproximado para busca local
-    const latDiff = radiusKm / 111.0;
-    const lngFactor = Math.cos(lat * Math.PI / 180);
-    const lngDiff = radiusKm / (111.0 * (lngFactor || 1));
-    whereClause.latitude = { [Op.between]: [parseFloat(lat) - latDiff, parseFloat(lat) + latDiff] };
-    whereClause.longitude = { [Op.between]: [parseFloat(lng) - lngDiff, parseFloat(lng) + lngDiff] };
-  }
+  // Construir cláusula where usando bounding box aproximado
+  const latDiff = radiusKm / 111.0;
+  const lngFactor = Math.cos(lat * Math.PI / 180);
+  const lngDiff = radiusKm / (111.0 * (lngFactor || 1));
+
+  const whereClause = {
+    latitude: { [Op.between]: [parseFloat(lat) - latDiff, parseFloat(lat) + latDiff] },
+    longitude: { [Op.between]: [parseFloat(lng) - lngDiff, parseFloat(lng) + lngDiff] }
+  };
   if (type) {
     whereClause.poi_type = type;
   }
@@ -106,34 +102,29 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
   // Buscar POIs
   const pois = await PointOfInterest.findAll({
     where: whereClause,
-    include: includeOptions,
-    order: sortBy === 'recent' ? [['updated_at', 'DESC']] : undefined
+    include: includeOptions
   });
 
   // Processar resultados
-  let processed = pois;
-  if (!isGlobal && lat != null && lng != null) {
-    // Calcular distâncias, filtrar por raio real e ordenar por distância
-    const withDistance = pois.map(poi => {
-      const distanceKm = geoUtils.calculateDistance(
-        parseFloat(lat),
-        parseFloat(lng),
-        parseFloat(poi.latitude),
-        parseFloat(poi.longitude)
-      );
-      return { poi, distanceKm };
-    });
+  // Calcular distâncias, filtrar por raio real e ordenar
+  const withDistance = pois.map(poi => {
+    const distanceKm = geoUtils.calculateDistance(
+      parseFloat(lat),
+      parseFloat(lng),
+      parseFloat(poi.latitude),
+      parseFloat(poi.longitude)
+    );
+    return { poi, distanceKm };
+  });
 
-    const filtered = withDistance.filter(x => x.distanceKm <= radiusKm);
-    filtered.sort((a, b) => a.distanceKm - b.distanceKm);
-    processed = filtered.map(x => x.poi);
-  }
+  const filtered = withDistance.filter(x => x.distanceKm <= radiusKm);
+  filtered.sort((a, b) => a.distanceKm - b.distanceKm);
 
-  // Paginar
-  const totalCount = processed.length;
-  const pageItems = processed.slice(offset, offset + limit);
+  // Paginar após filtrar/ordenar
+  const totalCount = filtered.length;
+  const pageItems = filtered.slice(offset, offset + limit);
 
-  const results = pageItems.map(poi => ({
+  const results = pageItems.map(({ poi, distanceKm }) => ({
     id: poi.id,
     google_place_id: poi.google_place_id,
     name: poi.name,
@@ -142,12 +133,7 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
       lat: parseFloat(poi.latitude),
       lng: parseFloat(poi.longitude)
     },
-    distance_km: isGlobal ? undefined : geoUtils.calculateDistance(
-      parseFloat(lat),
-      parseFloat(lng),
-      parseFloat(poi.latitude),
-      parseFloat(poi.longitude)
-    ),
+    distance_km: distanceKm,
     address: poi.address,
     last_sync_at: poi.last_sync_at,
     google_data: poi.google_data || null,
@@ -176,16 +162,14 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
       page,
       page_size: results.length,
       total_pages: Math.ceil(totalCount / limit),
-      search_radius_km: isGlobal ? null : radiusKm
+      search_radius_km: radiusKm
     },
     source: 'database'
   };
 
-  // Guardar em cache (apenas quando não é global)
-  if (cacheKey) {
-    const ttl = determineDataTTL(pois);
-    await cacheService.set(cacheKey, response, ttl);
-  }
+  // Guardar em cache
+  const ttl = determineDataTTL(pois);
+  await cacheService.set(cacheKey, response, ttl);
 
   return response;
 }
