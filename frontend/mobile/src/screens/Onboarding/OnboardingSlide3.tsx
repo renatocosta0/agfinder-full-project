@@ -5,6 +5,7 @@ import React, { useMemo } from 'react';
 import { PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import GasStationUnit from '../../components/3D/GasStationUnit';
 import Particles from '../../components/3D/Particles';
+import { useAuth } from '../../contexts/AuthContext';
 import { RootStackParamList } from '../../navigation/RootNavigator';
 
 type OnboardingNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Onboarding3'>;
