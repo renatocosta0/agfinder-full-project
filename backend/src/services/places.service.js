@@ -103,7 +103,7 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
   const pois = await PointOfInterest.findAll({
     where: whereClause,
     include: includeOptions,
-    order: sortBy === 'recent' ? [[literal('(SELECT MAX(created_at) FROM contributions WHERE contributions.poi_id = PointOfInterest.id)'), 'DESC']] : undefined
+    order: sortBy === 'recent' ? [[literal('(SELECT MAX(created_at) FROM contributions WHERE contributions.poi_id = points_of_interest.id)'), 'DESC']] : undefined
   });
 
   // Processar resultados
