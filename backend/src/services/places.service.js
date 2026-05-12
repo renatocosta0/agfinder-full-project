@@ -102,8 +102,7 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
   // Buscar POIs
   const pois = await PointOfInterest.findAll({
     where: whereClause,
-    include: includeOptions,
-    order: sortBy === 'recent' ? [[literal('(SELECT MAX(created_at) FROM contributions WHERE contributions.poi_id = points_of_interest.id)'), 'DESC']] : undefined
+    include: includeOptions
   });
 
   // Processar resultados
@@ -123,6 +122,19 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
   // Sort based on sortBy parameter
   if (sortBy === 'distance' || sortBy === 'nearest') {
     filtered.sort((a, b) => a.distanceKm - b.distanceKm);
+  } else if (sortBy === 'recent') {
+    // Sort by most recent contribution created_at
+    filtered.sort((a, b) => {
+      const aLatest = (a.poi.contributions || []).reduce((latest, c) => {
+        const created = new Date(c.created_at).getTime();
+        return created > latest ? created : latest;
+      }, 0);
+      const bLatest = (b.poi.contributions || []).reduce((latest, c) => {
+        const created = new Date(c.created_at).getTime();
+        return created > latest ? created : latest;
+      }, 0);
+      return bLatest - aLatest;
+    });
   } else if (sortBy === 'reports') {
     // Sort by total interactions (validations + reports)
     filtered.sort((a, b) => {
@@ -139,7 +151,6 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
       return bInteractions - aInteractions;
     });
   }
-  // 'recent' is already handled by SQL ORDER BY
 
   // Paginar após filtrar/ordenar
   const totalCount = filtered.length;
