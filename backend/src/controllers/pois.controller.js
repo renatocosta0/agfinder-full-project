@@ -666,75 +666,6 @@ const getPoiUpdates = async (req, res) => {
   }
 };
 
-// Get POIs globally (no location filter) ordered by recent or reports
-const getGlobalPOIs = async (req, res) => {
-  try {
-    const { type, orderBy = 'recent', page = 1, limit = 20, forceRefresh } = req.query;
-    const pageNum = parseInt(page, 10) || 1;
-    const pageSize = Math.min(parseInt(limit, 10) || 20, 200);
-    const sortBy = orderBy === 'reports' ? 'reports' : 'recent';
-
-    const serviceRes = await placesService.findPOIsGlobal(
-      type,
-      sortBy,
-      {
-        page: pageNum,
-        limit: pageSize,
-        includeContributions: true,
-        forceRefresh: forceRefresh === 'true' || forceRefresh === true
-      }
-    );
-
-    const formattedPois = serviceRes.results.map(item => {
-      let current = null;
-      if (Array.isArray(item.contributions) && item.contributions.length > 0) {
-        current = item.contributions.find(c => c.is_current) || item.contributions[0];
-      }
-      const validationsCount = current && current.validations ? (current.validations.valid || 0) : 0;
-      const reportsCount = current && current.validations ? (current.validations.reports || 0) : 0;
-      const totalInteractions = current ? 1 + validationsCount + reportsCount : 0;
-      return {
-        id: item.id,
-        poi_type: item.type,
-        google_place_id: item.google_place_id,
-        name: item.name,
-        address: item.address,
-        latitude: item.location.lat,
-        longitude: item.location.lng,
-        distance_km: item.distance_km,
-        google_data: item.google_data,
-        has_current_contribution: !!current,
-        total_interactions: totalInteractions,
-        current_contribution: current ? {
-          id: current.id,
-          type: current.type || current.contribution_type,
-          created_at: current.created_at
-        } : null
-      };
-    });
-
-    return res.status(200).json({
-      status: 'success',
-      data: {
-        pois: formattedPois,
-        pagination: {
-          total: serviceRes.metadata.total_results,
-          page: serviceRes.metadata.page,
-          limit: serviceRes.metadata.page_size,
-          pages: serviceRes.metadata.total_pages,
-          hasMore: serviceRes.metadata.page < serviceRes.metadata.total_pages
-        }
-      }
-    });
-  } catch (error) {
-    logger.error('Get global POIs error:', error);
-    return res.status(500).json({
-      status: 'error',
-      message: 'Error fetching global POIs',
-    });
-  }
-};
-
 // Text search POIs by name or address with pagination
 const searchPOIs = async (req, res) => {
   try {
@@ -822,7 +753,6 @@ const searchPOIs = async (req, res) => {
 
 module.exports = {
   getNearbyPOIs,
-  getGlobalPOIs,
   getPOIById,
   getPOIContributionHistory,
   saveCachedPOIs,

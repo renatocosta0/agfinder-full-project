@@ -58,12 +58,6 @@ export async function getPoisSearch(params: { q: string; page?: number; limit?: 
   return { pois: (payload.pois as PoiListItemApi[]) || [], pagination: payload.pagination };
 }
 
-export async function getPoisGlobal(params: { type?: PoiTypeApi; orderBy: 'recent' | 'reports'; page?: number; limit?: number; forceRefresh?: boolean }): Promise<{ pois: PoiListItemApi[]; pagination?: GetPoisResponse['data']['pagination'] }> {
-  const res = await api.get<GetPoisResponse>('/api/pois/global', { params });
-  const payload = res.data?.data ?? (res.data as any);
-  return { pois: (payload.pois as PoiListItemApi[]) || [], pagination: payload.pagination };
-}
-
 export interface PoiDetailsResponse {
   status?: string;
   success?: boolean;

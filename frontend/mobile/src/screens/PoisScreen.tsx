@@ -228,30 +228,26 @@ export default function PoisScreen() {
       const radius = 15;
       const pageToLoad = reset ? 1 : (nextPage ?? page + 1);
       const limit = 20;
-      try { console.log('[fetchPois] request', { lat: center.lat, lng: center.lng, radius, type: requestedType, page: pageToLoad, limit, q: searchQuery, search: isSearching, orderBy }); } catch { }
+      try { console.log('[fetchPois] request', { lat: center.lat, lng: center.lng, radius, type: requestedType, page: pageToLoad, limit, q: searchQuery, search: isSearching }); } catch { }
       const { pois: apiPois, pagination } = isSearching
         ? await getPoisSearch({ q: searchQuery.trim(), page: pageToLoad, limit, include_contributions: true })
-        : (orderBy === 'recent' || orderBy === 'reports')
-          ? await getPoisGlobal({ type: requestedType, orderBy, page: pageToLoad, limit, forceRefresh: !!forceRefresh })
-          : await getPois({ lat: center.lat, lng: center.lng, radius, type: requestedType, include_contributions: true, page: pageToLoad, limit, forceRefresh: !!forceRefresh });
+        : await getPois({ lat: center.lat, lng: center.lng, radius, type: requestedType, include_contributions: true, page: pageToLoad, limit, forceRefresh: !!forceRefresh });
       try { console.log('[fetchPois] response.count', apiPois.length, 'page', pagination?.page, 'pages', pagination?.pages); } catch { }
       let mapped = apiPois.map(mapListItemToPoi);
-      // Ensure distance is present also for search results (but not for global results)
-      if (!isSearching && orderBy !== 'recent' && orderBy !== 'reports') {
-        const centerForDistance = coords ?? DEFAULT_CENTER;
-        mapped = mapped.map((p) => {
-          if (!Number.isFinite(p.distance) || p.distance === 0) {
-            const item = apiPois.find(x => String(x.id) === p.id);
-            const lat = Number((item as any)?.latitude ?? (item as any)?.lat);
-            const lng = Number((item as any)?.longitude ?? (item as any)?.lng);
-            if (Number.isFinite(lat) && Number.isFinite(lng)) {
-              const d = haversineKm(centerForDistance.lat, centerForDistance.lng, lat, lng);
-              return { ...p, distance: d };
-            }
+      // Ensure distance is present also for search results
+      const centerForDistance = coords ?? DEFAULT_CENTER;
+      mapped = mapped.map((p) => {
+        if (!Number.isFinite(p.distance) || p.distance === 0) {
+          const item = apiPois.find(x => String(x.id) === p.id);
+          const lat = Number((item as any)?.latitude ?? (item as any)?.lat);
+          const lng = Number((item as any)?.longitude ?? (item as any)?.lng);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            const d = haversineKm(centerForDistance.lat, centerForDistance.lng, lat, lng);
+            return { ...p, distance: d };
           }
-          return p;
-        });
-      }
+        }
+        return p;
+      });
       if (reset) {
         setPois(mapped);
       } else {

@@ -124,42 +124,6 @@ router.get('/', optionalAuth, validate(poisValidation.getNearbyPOIs), poisContro
 
 /**
  * @swagger
- * /api/pois/global:
- *   get:
- *     summary: Buscar POIs globalmente ordenados por recent ou reports
- *     description: Retorna POIs de qualquer lugar, ordenados por atualizações recentes ou mais reportados
- *     tags: [POIs]
- *     parameters:
- *       - in: query
- *         name: type
- *         schema:
- *           type: string
- *           enum: [atm, gasstation]
- *         description: Tipo de POI (atm ou gasstation)
- *       - in: query
- *         name: orderBy
- *         schema:
- *           type: string
- *           enum: [recent, reports]
- *         description: Ordenação (recent ou reports)
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *         description: Página (paginação)
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *         description: Limite por página
- *     responses:
- *       200:
- *         description: Lista de POIs globais
- */
-router.get('/global', optionalAuth, poisController.getGlobalPOIs);
-
-/**
- * @swagger
  * /api/pois/search:
  *   get:
  *     summary: Buscar POIs por nome/endereço (texto)
