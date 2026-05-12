@@ -33,11 +33,12 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
     page = 1,
     limit = 20,
     sortBy = 'distance',
-    includeContributions = false
+    includeContributions = false,
+    isGlobal = false
   } = options;
-  
-  // Validar coordenadas
-  if (!geoUtils.isValidCoordinate(lat, lng)) {
+
+  // Validar coordenadas (apenas se fornecidas)
+  if (lat != null && lng != null && !geoUtils.isValidCoordinate(lat, lng)) {
     throw new AppError('Coordenadas inválidas', 400);
   }
 
@@ -45,37 +46,40 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
   if (type && !POI_TYPES[type]) {
     throw new AppError(`Tipo de POI não suportado: ${type}`, 400);
   }
-  
+
   // Calcular offset para paginação
   const offset = (page - 1) * limit;
-  
-  // Verificar cache primeiro
-  const cacheKey = `pois:db:${type || 'all'}:${geoUtils.geoHashForCaching(lat, lng, radiusKm * 1000)}:p${page}:l${limit}`;
-  logger.info(`[places.findPOIsFromDatabase] cacheKey=${cacheKey} forceRefresh=${!!options.forceRefresh}`);
-  const cachedResults = options.forceRefresh ? null : await cacheService.get(cacheKey);
-  logger.info(`[places.findPOIsFromDatabase] cache ${cachedResults ? 'HIT' : 'MISS'} for ${cacheKey}`);
-  
-  if (cachedResults) {
-    logger.info(`Cache hit for ${cacheKey}`);
-    return {
-      ...cachedResults,
-      source: 'cache'
-    };
-  }
-  
-  // Construir cláusula where usando bounding box aproximado
-  const latDiff = radiusKm / 111.0;
-  const lngFactor = Math.cos(lat * Math.PI / 180);
-  const lngDiff = radiusKm / (111.0 * (lngFactor || 1));
 
-  const whereClause = {
-    latitude: { [Op.between]: [parseFloat(lat) - latDiff, parseFloat(lat) + latDiff] },
-    longitude: { [Op.between]: [parseFloat(lng) - lngDiff, parseFloat(lng) + lngDiff] }
-  };
+  // Verificar cache primeiro (apenas quando não é global)
+  const cacheKey = isGlobal ? null : `pois:db:${type || 'all'}:${geoUtils.geoHashForCaching(lat, lng, radiusKm * 1000)}:p${page}:l${limit}`;
+  if (cacheKey) {
+    logger.info(`[places.findPOIsFromDatabase] cacheKey=${cacheKey} forceRefresh=${!!options.forceRefresh}`);
+    const cachedResults = options.forceRefresh ? null : await cacheService.get(cacheKey);
+    logger.info(`[places.findPOIsFromDatabase] cache ${cachedResults ? 'HIT' : 'MISS'} for ${cacheKey}`);
+
+    if (cachedResults) {
+      logger.info(`Cache hit for ${cacheKey}`);
+      return {
+        ...cachedResults,
+        source: 'cache'
+      };
+    }
+  }
+
+  // Construir cláusula where
+  const whereClause = {};
+  if (!isGlobal && lat != null && lng != null) {
+    // Bounding box aproximado para busca local
+    const latDiff = radiusKm / 111.0;
+    const lngFactor = Math.cos(lat * Math.PI / 180);
+    const lngDiff = radiusKm / (111.0 * (lngFactor || 1));
+    whereClause.latitude = { [Op.between]: [parseFloat(lat) - latDiff, parseFloat(lat) + latDiff] };
+    whereClause.longitude = { [Op.between]: [parseFloat(lng) - lngDiff, parseFloat(lng) + lngDiff] };
+  }
   if (type) {
     whereClause.poi_type = type;
   }
-  
+
   // Incluir opções de associação
   const includeOptions = [];
   if (includeContributions) {
@@ -98,33 +102,38 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
       ]
     });
   }
-  
+
   // Buscar POIs
   const pois = await PointOfInterest.findAll({
     where: whereClause,
-    include: includeOptions
+    include: includeOptions,
+    order: sortBy === 'recent' ? [['updated_at', 'DESC']] : undefined
   });
-  
+
   // Processar resultados
-  // Calcular distâncias, filtrar por raio real e ordenar
-  const withDistance = pois.map(poi => {
-    const distanceKm = geoUtils.calculateDistance(
-      parseFloat(lat),
-      parseFloat(lng),
-      parseFloat(poi.latitude),
-      parseFloat(poi.longitude)
-    );
-    return { poi, distanceKm };
-  });
+  let processed = pois;
+  if (!isGlobal && lat != null && lng != null) {
+    // Calcular distâncias, filtrar por raio real e ordenar por distância
+    const withDistance = pois.map(poi => {
+      const distanceKm = geoUtils.calculateDistance(
+        parseFloat(lat),
+        parseFloat(lng),
+        parseFloat(poi.latitude),
+        parseFloat(poi.longitude)
+      );
+      return { poi, distanceKm };
+    });
 
-  const filtered = withDistance.filter(x => x.distanceKm <= radiusKm);
-  filtered.sort((a, b) => a.distanceKm - b.distanceKm);
+    const filtered = withDistance.filter(x => x.distanceKm <= radiusKm);
+    filtered.sort((a, b) => a.distanceKm - b.distanceKm);
+    processed = filtered.map(x => x.poi);
+  }
 
-  // Paginar após filtrar/ordenar
-  const totalCount = filtered.length;
-  const pageItems = filtered.slice(offset, offset + limit);
+  // Paginar
+  const totalCount = processed.length;
+  const pageItems = processed.slice(offset, offset + limit);
 
-  const results = pageItems.map(({ poi, distanceKm }) => ({
+  const results = pageItems.map(poi => ({
     id: poi.id,
     google_place_id: poi.google_place_id,
     name: poi.name,
@@ -133,7 +142,12 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
       lat: parseFloat(poi.latitude),
       lng: parseFloat(poi.longitude)
     },
-    distance_km: distanceKm,
+    distance_km: isGlobal ? undefined : geoUtils.calculateDistance(
+      parseFloat(lat),
+      parseFloat(lng),
+      parseFloat(poi.latitude),
+      parseFloat(poi.longitude)
+    ),
     address: poi.address,
     last_sync_at: poi.last_sync_at,
     google_data: poi.google_data || null,
@@ -153,7 +167,7 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
       } : { valid: 0, reports: 0 }
     })) : undefined
   }));
-  
+
   // Preparar response
   const response = {
     results,
@@ -162,15 +176,17 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
       page,
       page_size: results.length,
       total_pages: Math.ceil(totalCount / limit),
-      search_radius_km: radiusKm
+      search_radius_km: isGlobal ? null : radiusKm
     },
     source: 'database'
   };
-  
-  // Guardar em cache
-  const ttl = determineDataTTL(pois);
-  await cacheService.set(cacheKey, response, ttl);
-  
+
+  // Guardar em cache (apenas quando não é global)
+  if (cacheKey) {
+    const ttl = determineDataTTL(pois);
+    await cacheService.set(cacheKey, response, ttl);
+  }
+
   return response;
 }
 
@@ -183,20 +199,20 @@ function determineDataTTL(pois) {
   if (!pois || pois.length === 0) {
     return 300; // 5 minutos se não houver POIs
   }
-  
+
   // Encontrar o POI com a sincronização mais recente
   const lastSyncTimes = pois
     .map(p => p.last_sync_at || p.last_sync)
     .filter(ts => !!ts)
     .map(ts => new Date(ts).getTime());
-  
+
   if (lastSyncTimes.length === 0) {
     return 300; // 5 minutos se não houver datas de sincronização
   }
-  
+
   const mostRecentSync = Math.max(...lastSyncTimes);
   const ageInHours = (Date.now() - mostRecentSync) / (1000 * 60 * 60);
-  
+
   if (ageInHours < 24) {
     return 3600; // 1 hora para dados recentes
   } else if (ageInHours < 72) {
@@ -217,7 +233,7 @@ function determineDataTTL(pois) {
 async function getPlaceDetails(placeId, options = {}) {
   try {
     const { includeContributions = false, includeSyncInfo = false } = options;
-    
+
     // Try cache first
     const cacheKey = `poi:detail:${placeId}:${includeContributions}:${includeSyncInfo}`;
     const cachedDetails = await cacheService.get(cacheKey);
@@ -281,7 +297,7 @@ async function getPlaceDetails(placeId, options = {}) {
       address: poi.address,
       google_data: poi.google_data || null,
       last_sync_at: poi.last_sync_at,
-      status: poi.last_sync_at ? 
+      status: poi.last_sync_at ?
         determineStatus(new Date(poi.last_sync_at)) : 'unknown',
       source: 'database'
     };
@@ -290,7 +306,7 @@ async function getPlaceDetails(placeId, options = {}) {
     if (includeContributions && poi.contributions) {
       // Get the current contribution
       const currentContribution = poi.contributions.find(c => c.is_current);
-      
+
       // Get contribution history
       const contributionHistory = poi.contributions
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
@@ -352,27 +368,27 @@ async function getPlaceDetails(placeId, options = {}) {
         ORDER BY started_at DESC
         LIMIT 1
       `, { type: sequelize.QueryTypes.SELECT });
-      
+
       if (syncInfo && syncInfo.length > 0) {
         poiDetails.sync_info = syncInfo[0];
       }
     }
 
     // Cache the details
-    const ttl = poi.last_sync_at ? 
-      Math.max(300, 3600 - Math.floor((Date.now() - new Date(poi.last_sync_at).getTime()) / 1000)) : 
+    const ttl = poi.last_sync_at ?
+      Math.max(300, 3600 - Math.floor((Date.now() - new Date(poi.last_sync_at).getTime()) / 1000)) :
       300; // Entre 5 minutos e 1 hora
-    
+
     await cacheService.set(cacheKey, poiDetails, ttl);
 
     return poiDetails;
   } catch (error) {
     logger.error(`Error fetching place details for ${placeId}:`, error);
-    
+
     if (error.response && error.response.status === 404) {
       throw new AppError('Local não encontrado', 404);
     }
-    
+
     throw error.isAppError ? error : new AppError('Falha ao buscar detalhes do local', 500);
   }
 }
@@ -398,7 +414,7 @@ async function getRecentUpdates(lat, lng, radiusKm, type = null, since = null) {
 
     // Build query conditions
     const whereConditions = {};
-    
+
     // Add type filter if provided
     if (type && POI_TYPES[type]) {
       whereConditions.poi_type = type;
@@ -575,7 +591,7 @@ function calculateAggregateStats(contributions) {
   const contributionWeight = totalContributions * 0.5;
   const timeWeight = determineTimeWeight(new Date(lastUpdated));
 
-  let reliability = Math.max(0, Math.min(100, 
+  let reliability = Math.max(0, Math.min(100,
     50 + validationWeight + reportWeight + contributionWeight + timeWeight
   ));
 

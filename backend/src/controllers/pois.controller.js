@@ -23,7 +23,7 @@ const getNearbyPOIs = async (req, res) => {
   logger.info('=== INICIANDO getNearbyPOIs ===');
   logger.info(`Query params: ${JSON.stringify(req.query)}`);
   logger.info(`User: ${req.user ? req.user.id : 'Não autenticado'}`);
-  
+
   try {
     const { type, lat, lng } = req.query;
     const radius = req.query.radius || 5;
@@ -35,13 +35,15 @@ const getNearbyPOIs = async (req, res) => {
     const forceRefresh = envForce || rawFR === true || rawFR === '1' || (typeof rawFR === 'string' && rawFR.toLowerCase() === 'true');
     logger.info(`[getNearbyPOIs] forceRefresh=${forceRefresh} (envForce=${envForce}, raw='${rawFR}')`);
 
-    if (!lat || !lng) {
-      return res.status(400).json({ status: 'error', message: 'Latitude and longitude are required' });
+    // lat/lng required only for 'nearest' or when not global mode
+    const isGlobal = orderBy === 'recent' || orderBy === 'reports';
+    if (!isGlobal && (!lat || !lng)) {
+      return res.status(400).json({ status: 'error', message: 'Latitude and longitude are required for nearest sorting' });
     }
 
-    const latNum = parseFloat(lat);
-    const lngNum = parseFloat(lng);
-    const validRadius = Math.min(50, Math.max(0.1, parseFloat(radius)));
+    const latNum = isGlobal ? null : parseFloat(lat);
+    const lngNum = isGlobal ? null : parseFloat(lng);
+    const validRadius = isGlobal ? 9999 : Math.min(50, Math.max(0.1, parseFloat(radius)));
 
     // Delegate to service
     const serviceRes = await placesService.findPOIsFromDatabase(
@@ -54,7 +56,8 @@ const getNearbyPOIs = async (req, res) => {
         limit,
         sortBy: orderBy === 'nearest' ? 'distance' : orderBy,
         includeContributions: !req.limitedAccess,
-        forceRefresh
+        forceRefresh,
+        isGlobal
       }
     );
 
@@ -119,7 +122,7 @@ const getPOIById = async (req, res) => {
   logger.info(`Params: ${JSON.stringify(req.params)}`);
   logger.info(`Query: ${JSON.stringify(req.query)}`);
   logger.info(`User: ${req.user ? req.user.id : 'Não autenticado'}`);
-  
+
   try {
     const { id } = req.params;
     const { refresh } = req.query;
@@ -168,7 +171,7 @@ const getPOIById = async (req, res) => {
     if (refresh === 'true') {
       try {
         const placeDetails = await googleMapsService.getPlaceDetails(poi.google_place_id);
-        
+
         // Atualizar dados do POI
         if (placeDetails) {
           await poi.update({
@@ -194,10 +197,10 @@ const getPOIById = async (req, res) => {
     }
 
     const currentContribution = poi.contributions[0] || null;
-    
+
     let validations = [];
     let reports = [];
-    
+
     if (currentContribution) {
       validations = currentContribution.validations
         .filter(v => v.validation_type === 'valid')
@@ -210,7 +213,7 @@ const getPOIById = async (req, res) => {
             profile_picture: v.user.profile_picture,
           },
         }));
-        
+
       reports = currentContribution.validations
         .filter(v => v.validation_type === 'report')
         .map(v => ({
@@ -257,12 +260,12 @@ const getPOIContributionHistory = async (req, res) => {
   logger.info(`Params: ${JSON.stringify(req.params)}`);
   logger.info(`Query: ${JSON.stringify(req.query)}`);
   logger.info(`User: ${req.user ? req.user.id : 'Não autenticado'}`);
-  
+
   try {
     const { id } = req.params;
     const { page = 1, limit = 20, sortBy = 'created_at:desc' } = req.query;
     const offset = (page - 1) * limit;
-    
+
     // Extract sort field and direction
     const [sortField, sortDirection] = sortBy.split(':');
     const order = [[sortField, sortDirection.toUpperCase()]];
@@ -310,7 +313,7 @@ const getPOIContributionHistory = async (req, res) => {
     const formattedContributions = contributions.map(contribution => {
       const validations = contribution.validations.filter(v => v.validation_type === 'valid').length;
       const reports = contribution.validations.filter(v => v.validation_type === 'report').length;
-      
+
       return {
         id: contribution.id,
         contribution_type: contribution.contribution_type,
@@ -353,19 +356,19 @@ const saveCachedPOIs = async (req, res) => {
   logger.info('=== INICIANDO saveCachedPOIs ===');
   logger.info(`Body: ${JSON.stringify(req.body).substring(0, 200)}...`); // Limita o log para não ficar muito grande
   logger.info(`User: ${req.user ? req.user.id : 'Não autenticado'}`);
-  
+
   try {
     const { pois } = req.body;
-    
+
     if (!Array.isArray(pois) || pois.length === 0) {
       return res.status(400).json({
         status: 'error',
         message: 'Requisição inválida: o campo "pois" deve ser um array não vazio',
       });
     }
-    
+
     logger.info(`Recebendo ${pois.length} POIs do cliente para sincronização`);
-    
+
     // Arrays para tracking dos resultados
     const results = {
       created: 0,
@@ -374,22 +377,22 @@ const saveCachedPOIs = async (req, res) => {
       errors: 0,
       details: []
     };
-    
+
     // Processar cada POI
     for (const poiData of pois) {
       try {
         // Verificar se já existe um POI com o mesmo google_place_id
         const existingPoi = await PointOfInterest.findOne({
-          where: { 
-            google_place_id: poiData.google_place_id 
+          where: {
+            google_place_id: poiData.google_place_id
           }
         });
-        
+
         if (existingPoi) {
           // Verificar se o POI do cliente é mais recente
           const clientUpdatedAt = new Date(poiData.updated_at);
           const dbUpdatedAt = new Date(existingPoi.updated_at);
-          
+
           if (clientUpdatedAt > dbUpdatedAt) {
             // Atualizar dados existentes
             await existingPoi.update({
@@ -400,7 +403,7 @@ const saveCachedPOIs = async (req, res) => {
               google_data: poiData.google_data,
               updated_at: clientUpdatedAt
             });
-            
+
             results.updated++;
             results.details.push({
               id: existingPoi.id,
@@ -431,7 +434,7 @@ const saveCachedPOIs = async (req, res) => {
             created_at: poiData.created_at || new Date(),
             updated_at: poiData.updated_at || new Date()
           });
-          
+
           results.created++;
           results.details.push({
             id: newPoi.id,
@@ -450,9 +453,9 @@ const saveCachedPOIs = async (req, res) => {
         });
       }
     }
-    
+
     logger.info(`Sincronização concluída: ${results.created} criados, ${results.updated} atualizados, ${results.skipped} ignorados, ${results.errors} erros`);
-    
+
     return res.status(200).json({
       status: 'success',
       data: {
@@ -478,11 +481,11 @@ const getPoiDetails = async (req, res) => {
   try {
     const { id } = req.params;
     const { include_contributions = 'true' } = req.query;
-    
+
     const { PointOfInterest, Contribution, User } = require('../models');
-    
+
     const include = [];
-    
+
     if (include_contributions === 'true') {
       include.push({
         model: Contribution,
@@ -498,18 +501,18 @@ const getPoiDetails = async (req, res) => {
         ]
       });
     }
-    
+
     // SyncRegion deprecated: no extra include
-    
+
     const poi = await PointOfInterest.findByPk(id, { include });
-    
+
     if (!poi) {
       return res.status(404).json({
         success: false,
         error: 'POI não encontrado'
       });
     }
-    
+
     // Compute current or last contribution with user info
     let currentContribution = Array.isArray(poi.contributions) && poi.contributions.length > 0
       ? poi.contributions[0]
@@ -534,7 +537,7 @@ const getPoiDetails = async (req, res) => {
         });
         userHasValidated = !!existingVal;
       }
-    } catch {}
+    } catch { }
 
     const computeCanValidate = (c) => {
       try {
@@ -574,26 +577,26 @@ const getPoiDetails = async (req, res) => {
 
     // Verificar se dados estão expirados
     const isExpired = poi.isExpired();
-    
+
     // Configurar cache baseado no status e idade dos dados
     if (!isExpired) {
       const now = new Date().getTime();
       const updatedAt = new Date(poi.updated_at).getTime();
       const ageInHours = (now - updatedAt) / (1000 * 60 * 60);
-      
+
       // Determinar TTL do cache baseado na idade dos dados
       let ttl = 300; // 5 minutos padrão
-      
+
       if (ageInHours > 24) ttl = 3600; // 1 hora se dados tiverem mais de 24h
       if (ageInHours > 72) ttl = 7200; // 2 horas se dados tiverem mais de 72h
-      
+
       res.set('Cache-Control', `public, max-age=${ttl}`);
       res.set('ETag', `W/"poi-${id}-${poi.version}"`);
     } else {
       // Dados expirados, não cachear
       res.set('Cache-Control', 'no-cache');
     }
-    
+
     // Build response POI with last_contribution included
     const responsePoi = {
       ...poi.toJSON(),
