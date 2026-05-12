@@ -41,7 +41,9 @@ const getNearbyPOIs = async (req, res) => {
 
     const latNum = parseFloat(lat);
     const lngNum = parseFloat(lng);
-    const validRadius = Math.min(50, Math.max(0.1, parseFloat(radius)));
+    // When sorting by recent or reports, use global radius to fetch from entire database
+    const validRadius = (orderBy === 'recent' || orderBy === 'reports') ? 500 : Math.min(50, Math.max(0.1, parseFloat(radius)));
+    logger.info(`[getNearbyPOIs] orderBy=${orderBy} using radius=${validRadius}km`);
 
     // Delegate to service
     const serviceRes = await placesService.findPOIsFromDatabase(

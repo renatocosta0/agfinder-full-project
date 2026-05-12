@@ -11,6 +11,7 @@ export interface GetPoisParams {
   limit?: number;
   include_contributions?: boolean;
   forceRefresh?: boolean;
+  orderBy?: 'nearest' | 'recent' | 'reports';
 }
 
 export interface PoiListItemApi {

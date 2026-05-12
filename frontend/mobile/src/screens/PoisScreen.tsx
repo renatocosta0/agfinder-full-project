@@ -211,7 +211,8 @@ export default function PoisScreen() {
     reset: boolean = true,
     nextPage?: number,
     forceRefresh?: boolean,
-    centerOverride?: { lat: number; lng: number } | null
+    centerOverride?: { lat: number; lng: number } | null,
+    orderByOverride?: OrderBy
   ) => {
     if (isFetchingPoisRef.current) return;
     isFetchingPoisRef.current = true;
@@ -228,10 +229,11 @@ export default function PoisScreen() {
       const radius = 15;
       const pageToLoad = reset ? 1 : (nextPage ?? page + 1);
       const limit = 20;
-      try { console.log('[fetchPois] request', { lat: center.lat, lng: center.lng, radius, type: requestedType, page: pageToLoad, limit, q: searchQuery, search: isSearching }); } catch { }
+      const currentOrderBy = orderByOverride ?? orderBy;
+      try { console.log('[fetchPois] request', { lat: center.lat, lng: center.lng, radius, type: requestedType, page: pageToLoad, limit, q: searchQuery, search: isSearching, orderBy: currentOrderBy }); } catch { }
       const { pois: apiPois, pagination } = isSearching
         ? await getPoisSearch({ q: searchQuery.trim(), page: pageToLoad, limit, include_contributions: true })
-        : await getPois({ lat: center.lat, lng: center.lng, radius, type: requestedType, include_contributions: true, page: pageToLoad, limit, forceRefresh: !!forceRefresh });
+        : await getPois({ lat: center.lat, lng: center.lng, radius, type: requestedType, include_contributions: true, page: pageToLoad, limit, forceRefresh: !!forceRefresh, orderBy: currentOrderBy });
       try { console.log('[fetchPois] response.count', apiPois.length, 'page', pagination?.page, 'pages', pagination?.pages); } catch { }
       let mapped = apiPois.map(mapListItemToPoi);
       // Ensure distance is present also for search results
@@ -448,6 +450,14 @@ export default function PoisScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
+  // Refetch when orderBy changes to get globally sorted results
+  useEffect(() => {
+    if (coords) {
+      fetchPois(true, 1, true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderBy]);
+
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current as any);
     timerRef.current = setInterval(() => {
@@ -495,18 +505,10 @@ export default function PoisScreen() {
   }, [pois, poiType, searchQuery]);
 
   // Sort POIs based on orderBy filter
-  const sortedPois = [...filteredPois].sort((a, b) => {
-    switch (orderBy) {
-      case 'nearest':
-        return a.distance - b.distance;
-      case 'recent':
-        return (a.freshnessMs ?? Number.MAX_SAFE_INTEGER) - (b.freshnessMs ?? Number.MAX_SAFE_INTEGER);
-      case 'reports':
-        return (b.reportsCount ?? b.reportCount) - (a.reportsCount ?? a.reportCount);
-      default:
-        return 0;
-    }
-  });
+  // When orderBy is 'recent' or 'reports', backend already sorts globally, so no local sort needed
+  const sortedPois = orderBy === 'nearest'
+    ? [...filteredPois].sort((a, b) => a.distance - b.distance)
+    : filteredPois;
 
   const getStatusColor = (status: StatusType) => {
     switch (status) {

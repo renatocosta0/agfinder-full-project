@@ -102,7 +102,8 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
   // Buscar POIs
   const pois = await PointOfInterest.findAll({
     where: whereClause,
-    include: includeOptions
+    include: includeOptions,
+    order: sortBy === 'recent' ? [[literal('(SELECT MAX(created_at) FROM contributions WHERE contributions.poi_id = PointOfInterest.id)'), 'DESC']] : undefined
   });
 
   // Processar resultados
@@ -118,7 +119,27 @@ async function findPOIsFromDatabase(lat, lng, type, radiusKm = 5, options = {}) 
   });
 
   const filtered = withDistance.filter(x => x.distanceKm <= radiusKm);
-  filtered.sort((a, b) => a.distanceKm - b.distanceKm);
+
+  // Sort based on sortBy parameter
+  if (sortBy === 'distance' || sortBy === 'nearest') {
+    filtered.sort((a, b) => a.distanceKm - b.distanceKm);
+  } else if (sortBy === 'reports') {
+    // Sort by total interactions (validations + reports)
+    filtered.sort((a, b) => {
+      const aInteractions = (a.poi.contributions || []).reduce((sum, c) => {
+        const valid = (c.validations || []).filter(v => v.validation_type === 'valid').length;
+        const reports = (c.validations || []).filter(v => v.validation_type === 'report').length;
+        return sum + 1 + valid + reports;
+      }, 0);
+      const bInteractions = (b.poi.contributions || []).reduce((sum, c) => {
+        const valid = (c.validations || []).filter(v => v.validation_type === 'valid').length;
+        const reports = (c.validations || []).filter(v => v.validation_type === 'report').length;
+        return sum + 1 + valid + reports;
+      }, 0);
+      return bInteractions - aInteractions;
+    });
+  }
+  // 'recent' is already handled by SQL ORDER BY
 
   // Paginar após filtrar/ordenar
   const totalCount = filtered.length;
