@@ -7,7 +7,7 @@ const getNearbyPOIs = {
     lat: Joi.number().required(),
     lng: Joi.number().required(),
     radius: Joi.number().default(5),
-    orderBy: Joi.string().valid('nearest', 'recent', 'most_interactions').default('nearest'),
+    orderBy: Joi.string().valid('nearest', 'recent', 'most_interactions', 'reports').default('nearest'),
     limit: Joi.number().integer().min(1).max(50).default(20),
     page: Joi.number().integer().min(1).default(1),
     forceRefresh: Joi.boolean().default(false),
