@@ -18,6 +18,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import AuthRequiredModal from '../components/AuthRequiredModal';
 import BottomTabBar from '../components/BottomTabBar';
 import ContributionModal, { StatusType as CMStatusType } from '../components/ContributionModal';
 import StatusButtons from '../components/StatusButtons';
@@ -77,6 +78,7 @@ export default function PoisScreen() {
   const [selectedStatus, setSelectedStatus] = useState<StatusType | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   const [pois, setPois] = useState<Poi[]>(initialPOIs);
   const [loading, setLoading] = useState(false);
@@ -798,14 +800,31 @@ export default function PoisScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.profileButton}
-          onPress={() => navigation.navigate('Profile')}
-        >
-          <View style={styles.profileAvatar}>
-            <Text style={styles.profileAvatarText}>{(user?.name?.[0] || 'U').toUpperCase()}</Text>
+        {token ? (
+          <TouchableOpacity
+            style={styles.profileButton}
+            onPress={() => navigation.navigate('Profile')}
+          >
+            <View style={styles.profileAvatar}>
+              <Text style={styles.profileAvatarText}>{(user?.name?.[0] || 'U').toUpperCase()}</Text>
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.authButtonsContainer}>
+            <TouchableOpacity
+              style={styles.authButton}
+              onPress={() => navigation.navigate('Login')}
+            >
+              <Text style={styles.authButtonText}>Sign In</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.authButton, styles.signUpButton]}
+              onPress={() => navigation.navigate('Register')}
+            >
+              <Text style={[styles.authButtonText, styles.signUpButtonText]}>Sign Up</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        )}
         {!isWeb ? (
           <TouchableOpacity
             style={styles.notificationButton}
@@ -961,6 +980,10 @@ export default function PoisScreen() {
               <TouchableOpacity
                 style={styles.poiHeader}
                 onPress={() => {
+                  if (!token) {
+                    setShowAuthModal(true);
+                    return;
+                  }
                   if (isWeb || hasActiveSubscription) {
                     navigation.navigate('PoiDetails', {
                       poiId: poi.id,
@@ -1086,6 +1109,11 @@ export default function PoisScreen() {
           </View>
         </Modal>
       ) : null}
+
+      <AuthRequiredModal
+        visible={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -1124,6 +1152,28 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '700',
+  },
+  authButtonsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  authButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#5856d6',
+  },
+  authButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  signUpButton: {
+    backgroundColor: '#5856d6',
+  },
+  signUpButtonText: {
+    color: '#fff',
   },
   notificationButton: {
     position: 'relative',

@@ -81,6 +81,7 @@ function AppNavigator() {
         </>
       ) : (
         <>
+          <Stack.Screen name="Pois" component={PoisScreen} />
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
         </>
