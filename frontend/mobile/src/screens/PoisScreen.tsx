@@ -390,14 +390,16 @@ export default function PoisScreen() {
                 fetchPois(true, 1, true, newCoords);
               }
 
-              // Record location to backend
-              recordUserLocation({
-                lat: newCoords.lat,
-                lng: newCoords.lng,
-                accuracy: pos.coords.accuracy ?? undefined,
-                source: 'app',
-                recordedAt: new Date().toISOString(),
-              }).catch(() => { });
+              // Record location to backend (only if authenticated)
+              if (token) {
+                recordUserLocation({
+                  lat: newCoords.lat,
+                  lng: newCoords.lng,
+                  accuracy: pos.coords.accuracy ?? undefined,
+                  source: 'app',
+                  recordedAt: new Date().toISOString(),
+                }).catch(() => { });
+              }
             },
             (err: any) => {
               console.log('[web geolocation watch error]', err);
@@ -467,14 +469,16 @@ export default function PoisScreen() {
               fetchPois(true, 1, true, newCoords);
             }
 
-            // Record location to backend
-            recordUserLocation({
-              lat: newCoords.lat,
-              lng: newCoords.lng,
-              accuracy: pos.coords.accuracy ?? undefined,
-              source: 'app',
-              recordedAt: new Date().toISOString(),
-            }).catch(() => { });
+            // Record location to backend (only if authenticated)
+            if (token) {
+              recordUserLocation({
+                lat: newCoords.lat,
+                lng: newCoords.lng,
+                accuracy: pos.coords.accuracy ?? undefined,
+                source: 'app',
+                recordedAt: new Date().toISOString(),
+              }).catch(() => { });
+            }
           }
         );
 
@@ -541,13 +545,16 @@ export default function PoisScreen() {
                 fetchPois(true, 1, true, newCoords);
               }
 
-              recordUserLocation({
-                lat: newCoords.lat,
-                lng: newCoords.lng,
-                accuracy: pos.coords.accuracy ?? undefined,
-                source: 'app',
-                recordedAt: new Date().toISOString(),
-              }).catch(() => { });
+              // Record location to backend (only if authenticated)
+              if (token) {
+                recordUserLocation({
+                  lat: newCoords.lat,
+                  lng: newCoords.lng,
+                  accuracy: pos.coords.accuracy ?? undefined,
+                  source: 'app',
+                  recordedAt: new Date().toISOString(),
+                }).catch(() => { });
+              }
             }
           ).then((subscription) => {
             watchIdRef.current = subscription;
@@ -601,13 +608,16 @@ export default function PoisScreen() {
                   fetchPois(true, 1, true, newCoords);
                 }
 
-                recordUserLocation({
-                  lat: newCoords.lat,
-                  lng: newCoords.lng,
-                  accuracy: pos.coords.accuracy ?? undefined,
-                  source: 'app',
-                  recordedAt: new Date().toISOString(),
-                }).catch(() => { });
+                // Record location to backend (only if authenticated)
+                if (token) {
+                  recordUserLocation({
+                    lat: newCoords.lat,
+                    lng: newCoords.lng,
+                    accuracy: pos.coords.accuracy ?? undefined,
+                    source: 'app',
+                    recordedAt: new Date().toISOString(),
+                  }).catch(() => { });
+                }
               },
               (err: any) => console.log('[web geolocation watch error]', err),
               { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
