@@ -19,11 +19,6 @@ export default function AuthRequiredModal({ visible, onClose }: AuthRequiredModa
     navigation.navigate('Login');
   };
 
-  const handleSignUp = () => {
-    onClose();
-    navigation.navigate('Register');
-  };
-
   return (
     <Modal
       visible={visible}
@@ -32,21 +27,20 @@ export default function AuthRequiredModal({ visible, onClose }: AuthRequiredModa
       onRequestClose={onClose}
     >
       <TouchableOpacity
-        style={styles.overlay}
+        style={styles.modalOverlay}
         activeOpacity={1}
         onPress={onClose}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={styles.title}>Sign In Required</Text>
-            <Text style={styles.message}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalTextContainer}>
+            <Text style={styles.modalTitle}>Sign In Required</Text>
+            <Text style={styles.modalDescription}>
               You need to sign in to view POI details and contribute information.
             </Text>
-            <TouchableOpacity style={styles.signInButton} onPress={handleSignIn}>
-              <Text style={styles.signInButtonText}>Sign In</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.signUpButton} onPress={handleSignUp}>
-              <Text style={styles.signUpButtonText}>Sign Up</Text>
+          </View>
+          <View style={styles.modalButtonsContainer}>
+            <TouchableOpacity style={styles.confirmButton} onPress={handleSignIn}>
+              <Text style={styles.confirmButtonText}>Sign In</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
               <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -59,68 +53,62 @@ export default function AuthRequiredModal({ visible, onClose }: AuthRequiredModa
 }
 
 const styles = StyleSheet.create({
-  overlay: {
+  modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  modalContainer: {
-    width: '90%',
-    maxWidth: 400,
+    paddingHorizontal: 20,
   },
   modalContent: {
-    backgroundColor: '#1e2b3a',
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
+    backgroundColor: '#000',
+    borderRadius: 24,
+    width: '90%',
+    maxWidth: 320,
+    overflow: 'hidden',
+    borderWidth: 4,
+    borderColor: '#000',
   },
-  title: {
+  modalTextContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  modalTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: '#fff',
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  message: {
+  modalDescription: {
     fontSize: 14,
     color: '#ccc',
-    textAlign: 'center',
-    marginBottom: 24,
     lineHeight: 20,
   },
-  signInButton: {
-    backgroundColor: '#34c759',
+  modalButtonsContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    gap: 8,
+  },
+  confirmButton: {
+    backgroundColor: '#5856d6',
     paddingVertical: 12,
-    paddingHorizontal: 32,
     borderRadius: 8,
-    width: '100%',
     alignItems: 'center',
-    marginBottom: 12,
   },
-  signInButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  signUpButton: {
-    backgroundColor: '#007aff',
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 8,
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  signUpButtonText: {
+  confirmButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
   cancelButton: {
-    paddingVertical: 8,
+    backgroundColor: '#fff',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
   },
   cancelButtonText: {
-    color: '#999',
-    fontSize: 14,
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '500',
   },
 });

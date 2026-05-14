@@ -770,7 +770,7 @@ export default function PoisScreen() {
 
   const handleStatusClick = (poiId: string, status: StatusType) => {
     if (!token) {
-      Alert.alert('Login required', 'You must be logged in to contribute.');
+      setShowAuthModal(true);
       return;
     }
     setSelectedPoiId(poiId);
@@ -820,20 +820,12 @@ export default function PoisScreen() {
             </View>
           </TouchableOpacity>
         ) : (
-          <View style={styles.authButtonsContainer}>
-            <TouchableOpacity
-              style={styles.authButton}
-              onPress={() => navigation.navigate('Login')}
-            >
-              <Text style={styles.authButtonText}>Sign In</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.authButton, styles.signUpButton]}
-              onPress={() => navigation.navigate('Register')}
-            >
-              <Text style={[styles.authButtonText, styles.signUpButtonText]}>Sign Up</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.authButton}
+            onPress={() => navigation.navigate('Login')}
+          >
+            <Text style={styles.authButtonText}>Sign In</Text>
+          </TouchableOpacity>
         )}
         {!isWeb ? (
           <TouchableOpacity
@@ -1163,10 +1155,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  authButtonsContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
   authButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -1178,12 +1166,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
-  },
-  signUpButton: {
-    backgroundColor: '#5856d6',
-  },
-  signUpButtonText: {
-    color: '#fff',
   },
   notificationButton: {
     position: 'relative',
