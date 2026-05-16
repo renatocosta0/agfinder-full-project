@@ -3,7 +3,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -12,7 +11,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import HeroCarousel from '../components/HeroCarousel';
 import { useAuth } from '../contexts/AuthContext';
@@ -27,13 +26,26 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [generalError, setGeneralError] = useState('');
 
   const handleLogin = async () => {
     const trimmedEmail = email.trim();
     const trimmedPassword = password.trim();
 
-    if (!trimmedEmail || !trimmedPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
+    // Reset errors
+    setEmailError('');
+    setPasswordError('');
+    setGeneralError('');
+
+    // Validate
+    if (!trimmedEmail) {
+      setEmailError('Email is required');
+      return;
+    }
+    if (!trimmedPassword) {
+      setPasswordError('Password is required');
       return;
     }
 
@@ -44,11 +56,15 @@ export default function LoginScreen() {
         await setToken(response.token);
         navigation.navigate('Onboarding1');
       } else {
-        Alert.alert('Error', response.message || 'Login failed');
+        setGeneralError(response.message || 'Login failed');
       }
     } catch (err: any) {
       const message = err.response?.data?.message || 'Network error. Please try again.';
-      Alert.alert('Login Failed', message);
+      if (err.response?.status === 401) {
+        setPasswordError('Invalid email or password');
+      } else {
+        setGeneralError(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -89,24 +105,35 @@ export default function LoginScreen() {
         {/* Form */}
         <View style={styles.form}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, emailError && styles.inputError]}
             placeholder="Email"
             placeholderTextColor="#666"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(text) => {
+              setEmail(text);
+              setEmailError('');
+            }}
             keyboardType="email-address"
             autoCapitalize="none"
             editable={!loading}
           />
+          {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
+
           <TextInput
-            style={styles.input}
+            style={[styles.input, passwordError && styles.inputError]}
             placeholder="Password"
             placeholderTextColor="#666"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => {
+              setPassword(text);
+              setPasswordError('');
+            }}
             secureTextEntry
             editable={!loading}
           />
+          {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
+
+          {generalError ? <Text style={styles.generalErrorText}>{generalError}</Text> : null}
 
           <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
@@ -158,6 +185,21 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     marginBottom: 16,
+  },
+  inputError: {
+    borderWidth: 1,
+    borderColor: '#ff3b30',
+  },
+  errorText: {
+    color: '#ff3b30',
+    fontSize: 12,
+    marginBottom: 16,
+  },
+  generalErrorText: {
+    color: '#ff3b30',
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center',
   },
   button: {
     backgroundColor: '#d1d1d1',

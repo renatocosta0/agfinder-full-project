@@ -3,7 +3,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -12,7 +11,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import HeroCarousel from '../components/HeroCarousel';
 import { useAuth } from '../contexts/AuthContext';
@@ -28,6 +27,10 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [nameError, setNameError] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [generalError, setGeneralError] = useState('');
 
   const handleRegister = async () => {
     if (loading) return;
@@ -36,18 +39,32 @@ export default function RegisterScreen() {
     const trimmedEmail = email.trim();
     const trimmedPassword = password.trim();
 
+    // Reset errors
+    setNameError('');
+    setEmailError('');
+    setPasswordError('');
+    setGeneralError('');
+
     // Basic validations
-    if (!trimmedName || !trimmedEmail || !trimmedPassword) {
-      Alert.alert('Missing information', 'Please fill in name, email and password.');
+    if (!trimmedName) {
+      setNameError('Name is required');
+      return;
+    }
+    if (!trimmedEmail) {
+      setEmailError('Email is required');
       return;
     }
     const emailOk = /.+@.+\..+/.test(trimmedEmail);
     if (!emailOk) {
-      Alert.alert('Invalid email', 'Please enter a valid email address.');
+      setEmailError('Please enter a valid email address');
+      return;
+    }
+    if (!trimmedPassword) {
+      setPasswordError('Password is required');
       return;
     }
     if (trimmedPassword.length < 6) {
-      Alert.alert('Weak password', 'Password must be at least 6 characters.');
+      setPasswordError('Password must be at least 6 characters');
       return;
     }
 
@@ -58,21 +75,21 @@ export default function RegisterScreen() {
         await setToken(response.token);
         navigation.navigate('Onboarding1');
       } else {
-        Alert.alert('Registration failed', response.message || 'Unexpected response.');
+        setGeneralError(response.message || 'Registration failed');
       }
     } catch (err: any) {
       const status = err?.response?.status;
       const serverMsg = err?.response?.data?.message;
       if (status === 409) {
-        Alert.alert('Email already in use', serverMsg || 'This email is already registered. Try signing in.');
+        setEmailError(serverMsg || 'This email is already registered');
       } else if (status === 400) {
-        Alert.alert('Invalid data', serverMsg || 'Please review your information and try again.');
+        setGeneralError(serverMsg || 'Please review your information and try again');
       } else if (status === 500) {
-        Alert.alert('Server error', 'Something went wrong on the server. Please try again later.');
+        setGeneralError('Something went wrong on the server. Please try again later');
       } else if (status) {
-        Alert.alert(`Error ${status}`, serverMsg || 'Request failed.');
+        setGeneralError(serverMsg || 'Request failed');
       } else {
-        Alert.alert('Network error', 'Unable to reach the server. Check your connection and try again.');
+        setGeneralError('Unable to reach the server. Check your connection and try again');
       }
     } finally {
       setLoading(false);
@@ -114,36 +131,52 @@ export default function RegisterScreen() {
         {/* Form */}
         <View style={styles.form}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, nameError && styles.inputError]}
             placeholder="Full Name"
             placeholderTextColor="#666"
             value={name}
-            onChangeText={setName}
+            onChangeText={(text) => {
+              setName(text);
+              setNameError('');
+            }}
             onBlur={() => setName(name.trim())}
             autoCapitalize="words"
             editable={!loading}
           />
+          {nameError ? <Text style={styles.errorText}>{nameError}</Text> : null}
+
           <TextInput
-            style={styles.input}
+            style={[styles.input, emailError && styles.inputError]}
             placeholder="Email"
             placeholderTextColor="#666"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(text) => {
+              setEmail(text);
+              setEmailError('');
+            }}
             onBlur={() => setEmail(email.trim())}
             keyboardType="email-address"
             autoCapitalize="none"
             editable={!loading}
           />
+          {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
+
           <TextInput
-            style={styles.input}
+            style={[styles.input, passwordError && styles.inputError]}
             placeholder="Password (min 6 characters)"
             placeholderTextColor="#666"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => {
+              setPassword(text);
+              setPasswordError('');
+            }}
             onBlur={() => setPassword(password.trim())}
             secureTextEntry
             editable={!loading}
           />
+          {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
+
+          {generalError ? <Text style={styles.generalErrorText}>{generalError}</Text> : null}
 
           <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
@@ -195,6 +228,21 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     marginBottom: 16,
+  },
+  inputError: {
+    borderWidth: 1,
+    borderColor: '#ff3b30',
+  },
+  errorText: {
+    color: '#ff3b30',
+    fontSize: 12,
+    marginBottom: 16,
+  },
+  generalErrorText: {
+    color: '#ff3b30',
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center',
   },
   button: {
     backgroundColor: '#d1d1d1',
