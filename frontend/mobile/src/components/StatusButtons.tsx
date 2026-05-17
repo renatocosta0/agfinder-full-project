@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, TouchableOpacity, Text, StyleSheet, ViewStyle } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 
 export type StatusType = 'both' | 'money' | 'paper' | 'none';
 
@@ -11,7 +11,7 @@ interface Props {
 
 export default function StatusButtons({ poiType, onSelect, containerStyle }: Props) {
   return (
-    <View style={[styles.statusButtons, containerStyle]}> 
+    <View style={[styles.statusButtons, containerStyle]}>
       <TouchableOpacity
         style={[styles.statusButton, { backgroundColor: '#34c759' }]}
         onPress={() => onSelect('both')}
@@ -26,7 +26,7 @@ export default function StatusButtons({ poiType, onSelect, containerStyle }: Pro
         onPress={() => onSelect('money')}
       >
         <Text style={styles.statusButtonText}>
-          {poiType === 'gasstations' ? '⛽ only' : '$ only'}
+          {poiType === 'gasstations' ? '⛽ apenas' : '$ apenas'}
         </Text>
       </TouchableOpacity>
 
@@ -35,7 +35,7 @@ export default function StatusButtons({ poiType, onSelect, containerStyle }: Pro
         onPress={() => onSelect('paper')}
       >
         <Text style={styles.statusButtonText}>
-          {poiType === 'gasstations' ? '🛢️ only' : '📄 only'}
+          {poiType === 'gasstations' ? '🛢️ apenas' : '📄 apenas'}
         </Text>
       </TouchableOpacity>
 
@@ -43,7 +43,7 @@ export default function StatusButtons({ poiType, onSelect, containerStyle }: Pro
         style={[styles.statusButton, { backgroundColor: '#ff3b30' }]}
         onPress={() => onSelect('none')}
       >
-        <Text style={styles.statusButtonText}>None</Text>
+        <Text style={styles.statusButtonText}>Nenhum</Text>
       </TouchableOpacity>
     </View>
   );

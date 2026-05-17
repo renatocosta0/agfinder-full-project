@@ -47,24 +47,24 @@ export default function RegisterScreen() {
 
     // Basic validations
     if (!trimmedName) {
-      setNameError('Name is required');
+      setNameError('Nome é obrigatório');
       return;
     }
     if (!trimmedEmail) {
-      setEmailError('Email is required');
+      setEmailError('Email é obrigatório');
       return;
     }
     const emailOk = /.+@.+\..+/.test(trimmedEmail);
     if (!emailOk) {
-      setEmailError('Please enter a valid email address');
+      setEmailError('Por favor, insira um endereço de email válido');
       return;
     }
     if (!trimmedPassword) {
-      setPasswordError('Password is required');
+      setPasswordError('Senha é obrigatória');
       return;
     }
     if (trimmedPassword.length < 6) {
-      setPasswordError('Password must be at least 6 characters');
+      setPasswordError('A senha deve ter pelo menos 6 caracteres');
       return;
     }
 
@@ -75,21 +75,21 @@ export default function RegisterScreen() {
         await setToken(response.token);
         navigation.navigate('Onboarding1');
       } else {
-        setGeneralError(response.message || 'Registration failed');
+        setGeneralError(response.message || 'Falha no cadastro');
       }
     } catch (err: any) {
       const status = err?.response?.status;
       const serverMsg = err?.response?.data?.message;
       if (status === 409) {
-        setEmailError(serverMsg || 'This email is already registered');
+        setEmailError(serverMsg || 'Este email já está cadastrado');
       } else if (status === 400) {
-        setGeneralError(serverMsg || 'Please review your information and try again');
+        setGeneralError(serverMsg || 'Por favor, revise suas informações e tente novamente');
       } else if (status === 500) {
-        setGeneralError('Something went wrong on the server. Please try again later');
+        setGeneralError('Algo deu errado no servidor. Tente novamente mais tarde');
       } else if (status) {
-        setGeneralError(serverMsg || 'Request failed');
+        setGeneralError(serverMsg || 'Falha na requisição');
       } else {
-        setGeneralError('Unable to reach the server. Check your connection and try again');
+        setGeneralError('Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente');
       }
     } finally {
       setLoading(false);
@@ -115,7 +115,7 @@ export default function RegisterScreen() {
               style={styles.languageIcon}
               resizeMode="contain"
             />
-            <Text style={styles.languageText}>English</Text>
+            <Text style={styles.languageText}>Português</Text>
           </TouchableOpacity>
         </View>
 
@@ -124,15 +124,15 @@ export default function RegisterScreen() {
 
         {/* Title */}
         <View style={styles.titleContainer}>
-          <Text style={styles.title}>Sign up</Text>
-          <Text style={styles.subtitle}>Create your account</Text>
+          <Text style={styles.title}>Cadastrar</Text>
+          <Text style={styles.subtitle}>Crie sua conta</Text>
         </View>
 
         {/* Form */}
         <View style={styles.form}>
           <TextInput
             style={[styles.input, nameError && styles.inputError]}
-            placeholder="Full Name"
+            placeholder="Nome completo"
             placeholderTextColor="#666"
             value={name}
             onChangeText={(text) => {
@@ -163,7 +163,7 @@ export default function RegisterScreen() {
 
           <TextInput
             style={[styles.input, passwordError && styles.inputError]}
-            placeholder="Password (min 6 characters)"
+            placeholder="Senha (mínimo 6 caracteres)"
             placeholderTextColor="#666"
             value={password}
             onChangeText={(text) => {
@@ -186,7 +186,7 @@ export default function RegisterScreen() {
             {loading ? (
               <ActivityIndicator color="#000" />
             ) : (
-              <Text style={styles.buttonText}>Sign up</Text>
+              <Text style={styles.buttonText}>Cadastrar</Text>
             )}
           </TouchableOpacity>
 
@@ -195,13 +195,13 @@ export default function RegisterScreen() {
             onPress={() => navigation.navigate('Login')}
             disabled={loading}
           >
-            <Text style={styles.linkText}>Already have an account? Sign in</Text>
+            <Text style={styles.linkText}>Já tem conta? Entrar</Text>
           </TouchableOpacity>
         </View>
 
         {/* Terms */}
         <Text style={styles.terms}>
-          By sign in or sign up, you agree to our Terms of Service{' \n'}and Privacy Policy
+          Ao entrar ou cadastrar-se, você concorda com nossos Termos de Serviço{' \n'}e Política de Privacidade
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>

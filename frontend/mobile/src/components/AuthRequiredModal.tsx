@@ -33,17 +33,17 @@ export default function AuthRequiredModal({ visible, onClose }: AuthRequiredModa
       >
         <View style={styles.modalContent}>
           <View style={styles.modalTextContainer}>
-            <Text style={styles.modalTitle}>Sign In Required</Text>
+            <Text style={styles.modalTitle}>Entrar é obrigatório</Text>
             <Text style={styles.modalDescription}>
-              You need to sign in to view POI details and contribute information.
+              Você precisa entrar para ver detalhes dos POIs e contribuir com informações.
             </Text>
           </View>
           <View style={styles.modalButtonsContainer}>
             <TouchableOpacity style={styles.confirmButton} onPress={handleSignIn}>
-              <Text style={styles.confirmButtonText}>Sign In</Text>
+              <Text style={styles.confirmButtonText}>Entrar</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
+              <Text style={styles.cancelButtonText}>Cancelar</Text>
             </TouchableOpacity>
           </View>
         </View>

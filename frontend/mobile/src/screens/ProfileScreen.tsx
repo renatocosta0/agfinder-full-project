@@ -54,10 +54,10 @@ export default function ProfileScreen() {
           <Text style={styles.avatarText}>{(user?.name?.[0] || 'U').toUpperCase()}</Text>
         </View>
         <View style={styles.userInfo}>
-          <Text style={styles.userName}>{user?.name || 'User'}</Text>
+          <Text style={styles.userName}>{user?.name || 'Usuário'}</Text>
           <View style={styles.emailRow}>
             <Text style={styles.emailIcon}>✉</Text>
-            <Text style={styles.email}>{user?.email || 'user@atmfinder.com'}</Text>
+            <Text style={styles.email}>{user?.email || 'usuario@atmfinder.com'}</Text>
           </View>
         </View>
         <TouchableOpacity
@@ -85,7 +85,7 @@ export default function ProfileScreen() {
                 <View style={styles.iconContainer}>
                   <Text style={styles.menuIcon}>💳</Text>
                 </View>
-                <Text style={styles.menuText}>Payment</Text>
+                <Text style={styles.menuText}>Pagamento</Text>
               </View>
               <Text style={styles.chevron}>›</Text>
             </TouchableOpacity>
@@ -102,7 +102,7 @@ export default function ProfileScreen() {
             <View style={styles.iconContainer}>
               <Text style={styles.menuIcon}>🚪</Text>
             </View>
-            <Text style={styles.menuText}>Log Out</Text>
+            <Text style={styles.menuText}>Sair</Text>
           </View>
           <Text style={styles.chevron}>›</Text>
         </TouchableOpacity>
@@ -117,11 +117,8 @@ export default function ProfileScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Sair da conta?</Text>
-            <Text style={styles.modalMessage}>
-              Tem certeza que deseja sair da sua conta?
-            </Text>
-
+            <Text style={styles.modalTitle}>Sair</Text>
+            <Text style={styles.modalMessage}>Tem certeza que deseja sair?</Text>
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}

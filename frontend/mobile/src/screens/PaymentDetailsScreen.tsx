@@ -164,7 +164,7 @@ export default function PaymentDetailsScreen() {
       </View>
 
       {/* Title */}
-      <Text style={styles.title}>Payment Details</Text>
+      <Text style={styles.title}>Detalhes do Pagamento</Text>
       <View style={[
         styles.statusBadge,
         status === 'completed' ? styles.statusCompleted :
@@ -172,55 +172,53 @@ export default function PaymentDetailsScreen() {
             status === 'expired' ? styles.statusExpired : styles.statusPending,
       ]}>
         <Text style={styles.statusText}>
-          {status === 'completed' ? 'Completed' : status === 'failed' ? 'Failed' : status === 'expired' ? 'Expired' : 'Pending'}
+          {status === 'completed' ? 'Concluído' : status === 'failed' ? 'Falhou' : status === 'expired' ? 'Expirado' : 'Pendente'}
         </Text>
       </View>
 
       {/* Payment Info Card */}
       <View style={styles.infoCard}>
         <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Amount</Text>
+          <Text style={styles.infoLabel}>Valor</Text>
           <Text style={styles.infoValue}>{subscriptionValue}</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Subscription</Text>
-          <Text style={styles.infoValue}>
-            {`+${(durationDays ?? (subscriptionType === 'weekly' ? 7 : subscriptionType === 'monthly' ? 30 : 1))} days`}
-          </Text>
+          <Text style={styles.infoLabel}>Tipo de Subscrição</Text>
+          <Text style={styles.infoValue}>{subscriptionType}</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Entity</Text>
+          <Text style={styles.infoLabel}>Entidade</Text>
           <Text style={styles.infoValue}>{entity ?? '—'}</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Reference</Text>
+          <Text style={styles.infoLabel}>Referência</Text>
           <Text style={styles.infoValue}>{reference ?? '—'}</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Expires in</Text>
+          <Text style={styles.infoLabel}>Expira em</Text>
           <Text style={[styles.infoValue, styles.expiresValue]}>{formatTime(timeLeft)}</Text>
         </View>
       </View>
 
       {/* Instructions */}
       <View style={styles.instructionsContainer}>
-        <Text style={styles.instructionsTitle}>Payment Instructions</Text>
+        <Text style={styles.instructionsTitle}>Instruções de Pagamento</Text>
         {(
           (steps && steps.length > 0)
             ? steps
             : [
-              'Go to your bank app or internet banking',
-              'Select "Payments" or "Transfers"',
-              'Choose "Payment by reference"',
-              `Enter the entity: ${entity ?? '—'}`,
-              `Enter the reference: ${reference ?? '—'}`,
-              `Enter the amount: ${subscriptionValue}`,
-              'Confirm the payment',
-              'Wait for confirmation (it may take a few minutes)',
+              'Vá ao app do seu banco ou internet banking',
+              'Selecione "Pagamentos" ou "Transferências"',
+              'Escolha "Pagamento por referência"',
+              `Digite a entidade: ${entity ?? '—'}`,
+              `Digite a referência: ${reference ?? '—'}`,
+              `Digite o valor: ${subscriptionValue}`,
+              'Confirme o pagamento',
+              'Aguarde a confirmação (pode levar alguns minutos)',
             ]
         ).map((s, i) => (
           <Text key={i} style={styles.instructionStep}>{`${i + 1}. ${s}`}</Text>

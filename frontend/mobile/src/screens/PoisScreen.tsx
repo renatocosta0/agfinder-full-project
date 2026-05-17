@@ -824,7 +824,7 @@ export default function PoisScreen() {
             style={styles.authButton}
             onPress={() => navigation.navigate('Login')}
           >
-            <Text style={styles.authButtonText}>Sign In</Text>
+            <Text style={styles.authButtonText}>Entrar</Text>
           </TouchableOpacity>
         )}
         {!isWeb ? (
@@ -845,7 +845,7 @@ export default function PoisScreen() {
         <Image source={require('../../assets/icons/search.png')} style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search"
+          placeholder="Buscar"
           placeholderTextColor="#666"
           value={searchQuery}
           onChangeText={setSearchQuery}
@@ -860,7 +860,7 @@ export default function PoisScreen() {
         >
           <Image source={require('../../assets/icons/order.png')} style={styles.filterIcon} />
           <Text style={styles.filterText}>
-            {orderBy === 'nearest' ? 'Nearest' : orderBy === 'recent' ? 'Recent' : 'Most Reports'}
+            {orderBy === 'nearest' ? 'Mais próximos' : orderBy === 'recent' ? 'Recentes' : 'Mais reportados'}
           </Text>
           <Text style={styles.filterArrow}>▼</Text>
         </TouchableOpacity>
@@ -869,7 +869,7 @@ export default function PoisScreen() {
           style={styles.filterButton}
           onPress={() => setShowPoiTypeMenu(!showPoiTypeMenu)}
         >
-          <Text style={styles.filterText}>{poiType === 'atms' ? 'ATMs' : 'Gas Stations'}</Text>
+          <Text style={styles.filterText}>{poiType === 'atms' ? 'Caixas' : 'Postos'}</Text>
           <Text style={styles.filterArrow}>▼</Text>
         </TouchableOpacity>
       </View>
@@ -891,21 +891,21 @@ export default function PoisScreen() {
               style={styles.filterModalItem}
               onPress={() => { setOrderBy('nearest'); setShowOrderMenu(false); }}
             >
-              <Text style={styles.filterModalText}>Nearest</Text>
+              <Text style={styles.filterModalText}>Mais próximos</Text>
             </TouchableOpacity>
             <View style={styles.filterModalDivider} />
             <TouchableOpacity
               style={styles.filterModalItem}
               onPress={() => { setOrderBy('recent'); setShowOrderMenu(false); }}
             >
-              <Text style={styles.filterModalText}>Recent Updates</Text>
+              <Text style={styles.filterModalText}>Atualizações recentes</Text>
             </TouchableOpacity>
             <View style={styles.filterModalDivider} />
             <TouchableOpacity
               style={styles.filterModalItem}
               onPress={() => { setOrderBy('reports'); setShowOrderMenu(false); }}
             >
-              <Text style={styles.filterModalText}>Most Reports</Text>
+              <Text style={styles.filterModalText}>Mais reportados</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -928,14 +928,14 @@ export default function PoisScreen() {
               style={styles.filterModalItem}
               onPress={() => { setPoiType('atms'); setShowPoiTypeMenu(false); }}
             >
-              <Text style={styles.filterModalText}>ATMs</Text>
+              <Text style={styles.filterModalText}>Caixas</Text>
             </TouchableOpacity>
             <View style={styles.filterModalDivider} />
             <TouchableOpacity
               style={styles.filterModalItem}
               onPress={() => { setPoiType('gasstations'); setShowPoiTypeMenu(false); }}
             >
-              <Text style={styles.filterModalText}>Gas Stations</Text>
+              <Text style={styles.filterModalText}>Postos</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -945,13 +945,13 @@ export default function PoisScreen() {
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.centeredText}>Loading POIs…</Text>
+          <Text style={styles.centeredText}>Carregando POIs…</Text>
         </View>
       ) : error ? (
         <View style={styles.centered}>
           <Text style={styles.centeredText}>{error}</Text>
           <TouchableOpacity style={styles.centeredButton} onPress={() => fetchPois(true)}>
-            <Text style={styles.centeredButtonText}>Retry</Text>
+            <Text style={styles.centeredButtonText}>Tentar novamente</Text>
           </TouchableOpacity>
         </View>
       ) : pois.length === 0 ? (
@@ -959,13 +959,13 @@ export default function PoisScreen() {
           {!initialFetchDone ? (
             <>
               <ActivityIndicator size="large" color="#fff" />
-              <Text style={styles.centeredText}>Loading POIs…</Text>
+              <Text style={styles.centeredText}>Carregando POIs…</Text>
             </>
           ) : (
             <>
-              <Text style={styles.centeredText}>No POIs found nearby.</Text>
+              <Text style={styles.centeredText}>Nenhum POI encontrado nas proximidades.</Text>
               <TouchableOpacity style={styles.centeredButton} onPress={() => fetchPois(true)}>
-                <Text style={styles.centeredButtonText}>Retry</Text>
+                <Text style={styles.centeredButtonText}>Tentar novamente</Text>
               </TouchableOpacity>
             </>
           )}
@@ -1020,7 +1020,7 @@ export default function PoisScreen() {
               {poi.isRecentlyUpdated ? (
                 <View style={styles.recentlyUpdatedContainer}>
                   <Text style={styles.recentlyUpdatedText}>
-                    Updated recently, check back in {poi.timeUntilNext}
+                    Atualizado recentemente, verifique novamente em {poi.timeUntilNext}
                   </Text>
                 </View>
               ) : (

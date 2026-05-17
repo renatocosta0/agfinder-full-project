@@ -1,7 +1,7 @@
-import React from 'react';
-import { View, TouchableOpacity, Image, Text, StyleSheet } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import React from 'react';
+import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { RootStackParamList } from '../navigation/RootNavigator';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -13,35 +13,35 @@ interface BottomTabBarProps {
 export default function BottomTabBar({ poiType = 'atms' }: BottomTabBarProps) {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
-  
+
   const isPoisScreen = route.name === 'Pois';
   const isHelpScreen = route.name === 'Help';
 
   return (
     <View style={styles.bottomNav}>
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.navItem}
         onPress={() => navigation.navigate('Pois')}
       >
-        <Image 
-          source={require('../../assets/icons/atms.png')} 
-          style={[styles.navIcon, isPoisScreen && styles.navIconActive]} 
+        <Image
+          source={require('../../assets/icons/atms.png')}
+          style={[styles.navIcon, isPoisScreen && styles.navIconActive]}
         />
         <Text style={isPoisScreen ? styles.navTextActive : styles.navText}>
-          {poiType === 'atms' ? 'Atms' : 'Gas Stations'}
+          {poiType === 'atms' ? 'Caixas' : 'Postos'}
         </Text>
       </TouchableOpacity>
-      
-      <TouchableOpacity 
+
+      <TouchableOpacity
         style={styles.navItem}
         onPress={() => navigation.navigate('Help')}
       >
-        <Image 
-          source={require('../../assets/icons/help.png')} 
-          style={[styles.navIcon, isHelpScreen && styles.navIconActive]} 
+        <Image
+          source={require('../../assets/icons/help.png')}
+          style={[styles.navIcon, isHelpScreen && styles.navIconActive]}
         />
         <Text style={isHelpScreen ? styles.navTextActive : styles.navText}>
-          Help
+          Ajuda
         </Text>
       </TouchableOpacity>
     </View>

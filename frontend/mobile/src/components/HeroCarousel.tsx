@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { View, Image, StyleSheet, Dimensions, ScrollView, NativeScrollEvent, NativeSyntheticEvent, Text } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { Dimensions, Image, NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 const { width: screenWidth } = Dimensions.get('window');
 // Match screen horizontal padding (20 left + 20 right) and cap max width to 350 to mirror design
@@ -7,8 +7,8 @@ const H_PADDING = 20;
 const SLIDE_WIDTH = Math.min(screenWidth - H_PADDING * 2, 350);
 
 const HERO_IMAGES = [
-  { id: 1, source: require('../../assets/images/atmdesign.png'), text: 'Find your local atms' },
-  { id: 2, source: require('../../assets/images/gasstationdesign.png'), text: 'Find your local gasstations' },
+  { id: 1, source: require('../../assets/images/atmdesign.png'), text: 'Encontre seus caixas locais' },
+  { id: 2, source: require('../../assets/images/gasstationdesign.png'), text: 'Encontre seus postos locais' },
 ];
 
 interface HeroCarouselProps {
@@ -49,7 +49,7 @@ export default function HeroCarousel({ style }: HeroCarouselProps) {
           ))}
         </ScrollView>
       </View>
-      
+
       {/* Dynamic text */}
       <Text style={styles.slideText}>{HERO_IMAGES[activeSlide]?.text}</Text>
 

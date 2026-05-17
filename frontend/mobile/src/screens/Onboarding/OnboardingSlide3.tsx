@@ -37,7 +37,7 @@ export default function OnboardingSlide3() {
     >
       {/* Skip Button */}
       <TouchableOpacity style={styles.skipButton} onPress={handleCompleteOnboarding}>
-        <Text style={styles.skipText}>Skip</Text>
+        <Text style={styles.skipText}>Pular</Text>
       </TouchableOpacity>
 
       {/* Particles */}
@@ -74,7 +74,7 @@ export default function OnboardingSlide3() {
         style={styles.nextButton}
         onPress={handleCompleteOnboarding}
       >
-        <Text style={styles.nextButtonText}>Next</Text>
+        <Text style={styles.nextButtonText}>Começar</Text>
       </TouchableOpacity>
     </LinearGradient>
   );

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, View, Image, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { postContribution } from '../services/pois';
+import { Alert, Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
+import { postContribution } from '../services/pois';
 
 export type StatusType = 'both' | 'money' | 'paper' | 'none';
 
@@ -42,23 +42,23 @@ export default function ContributionModal({ visible, poiId, poiType, initialStat
   const getStatusText = (status: StatusType) => {
     if (poiType === 'gasstations') {
       switch (status) {
-        case 'both': return 'Gas and diesel available';
-        case 'money': return 'Gas available, no diesel';
-        case 'paper': return 'Diesel available, no gas';
-        case 'none': return 'No gas or diesel available';
+        case 'both': return 'Gasolina e diesel disponíveis';
+        case 'money': return 'Gasolina disponível, sem diesel';
+        case 'paper': return 'Diesel disponível, sem gasolina';
+        case 'none': return 'Sem gasolina ou diesel';
       }
     }
     switch (status) {
-      case 'both': return 'Money and paper available';
-      case 'money': return 'Money available, no paper';
-      case 'paper': return 'Paper available, no money';
-      case 'none': return 'No money or paper available';
+      case 'both': return 'Dinheiro e papel disponíveis';
+      case 'money': return 'Dinheiro disponível, sem papel';
+      case 'paper': return 'Papel disponível, sem dinheiro';
+      case 'none': return 'Sem dinheiro ou papel';
     }
   };
 
   const confirm = async () => {
     if (!token) {
-      Alert.alert('Login required', 'You must be logged in to contribute.');
+      Alert.alert('Login necessário', 'Você precisa estar logado para contribuir.');
       return;
     }
     if (!selectedStatus) {
@@ -83,9 +83,9 @@ export default function ContributionModal({ visible, poiId, poiType, initialStat
       }
       const nowIso = new Date().toISOString();
       if (onAfterSubmit && selectedStatus) onAfterSubmit({ selectedStatus, nowIso });
-      Alert.alert('Thank you!', 'Your contribution was submitted.');
+      Alert.alert('Obrigado!', 'Sua contribuição foi enviada.');
     } catch (e) {
-      Alert.alert('Error', 'Failed to submit contribution. Please try again.');
+      Alert.alert('Erro', 'Falha ao enviar contribuição. Tente novamente.');
     } finally {
       onClose();
     }
@@ -103,15 +103,15 @@ export default function ContributionModal({ visible, poiId, poiType, initialStat
           <View style={styles.modalTextContainer}>
             <Text style={styles.modalTitle}>{selectedStatus ? getStatusText(selectedStatus) : ''}</Text>
             <Text style={styles.modalDescription}>
-              Are you sure you want to contribute with this info? This action cannot be undone.
+              Tem certeza que deseja contribuir com esta informação? Esta ação não pode ser desfeita.
             </Text>
           </View>
           <View style={styles.modalButtonsContainer}>
             <TouchableOpacity style={styles.confirmButton} onPress={confirm}>
-              <Text style={styles.confirmButtonText}>Confirm</Text>
+              <Text style={styles.confirmButtonText}>Confirmar</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
+              <Text style={styles.cancelButtonText}>Cancelar</Text>
             </TouchableOpacity>
           </View>
         </View>

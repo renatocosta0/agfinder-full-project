@@ -41,11 +41,11 @@ export default function LoginScreen() {
 
     // Validate
     if (!trimmedEmail) {
-      setEmailError('Email is required');
+      setEmailError('Email é obrigatório');
       return;
     }
     if (!trimmedPassword) {
-      setPasswordError('Password is required');
+      setPasswordError('Senha é obrigatória');
       return;
     }
 
@@ -56,12 +56,12 @@ export default function LoginScreen() {
         await setToken(response.token);
         navigation.navigate('Onboarding1');
       } else {
-        setGeneralError(response.message || 'Login failed');
+        setGeneralError(response.message || 'Falha no login');
       }
     } catch (err: any) {
-      const message = err.response?.data?.message || 'Network error. Please try again.';
+      const message = err.response?.data?.message || 'Erro de rede. Tente novamente.';
       if (err.response?.status === 401) {
-        setPasswordError('Invalid email or password');
+        setPasswordError('Email ou senha inválidos');
       } else {
         setGeneralError(message);
       }
@@ -89,7 +89,7 @@ export default function LoginScreen() {
               style={styles.languageIcon}
               resizeMode="contain"
             />
-            <Text style={styles.languageText}>English</Text>
+            <Text style={styles.languageText}>Português</Text>
           </TouchableOpacity>
         </View>
 
@@ -98,8 +98,8 @@ export default function LoginScreen() {
 
         {/* Title */}
         <View style={styles.titleContainer}>
-          <Text style={styles.title}>Sign in</Text>
-          <Text style={styles.subtitle}>Welcome back!</Text>
+          <Text style={styles.title}>Entrar</Text>
+          <Text style={styles.subtitle}>Bem-vindo de volta!</Text>
         </View>
 
         {/* Form */}
@@ -121,7 +121,7 @@ export default function LoginScreen() {
 
           <TextInput
             style={[styles.input, passwordError && styles.inputError]}
-            placeholder="Password"
+            placeholder="Senha"
             placeholderTextColor="#666"
             value={password}
             onChangeText={(text) => {
@@ -143,7 +143,7 @@ export default function LoginScreen() {
             {loading ? (
               <ActivityIndicator color="#000" />
             ) : (
-              <Text style={styles.buttonText}>Sign in</Text>
+              <Text style={styles.buttonText}>Entrar</Text>
             )}
           </TouchableOpacity>
 
@@ -152,13 +152,13 @@ export default function LoginScreen() {
             onPress={() => navigation.navigate('Register')}
             disabled={loading}
           >
-            <Text style={styles.linkText}>Don't have an account? Sign up</Text>
+            <Text style={styles.linkText}>Não tem conta? Cadastre-se</Text>
           </TouchableOpacity>
         </View>
 
         {/* Terms */}
         <Text style={styles.terms}>
-          By sign in or sign up, you agree to our Terms of Service{' \n'}and Privacy Policy
+          Ao entrar ou cadastrar-se, você concorda com nossos Termos de Serviço{' \n'}e Política de Privacidade
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>

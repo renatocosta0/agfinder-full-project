@@ -268,7 +268,7 @@ export default function PoiDetailsScreen() {
       // Prime countdown/labels immediately
       setTimeout(() => updateCountdown(), 0);
     } catch (e) {
-      setError('Failed to load POI details');
+      setError('Falha ao carregar detalhes do POI');
     } finally {
       inFlightRef.current = false;
       setLoading(false);
@@ -314,37 +314,37 @@ export default function PoiDetailsScreen() {
 
   const handleValidate = async () => {
     if (!token) {
-      Alert.alert('Login required', 'You must be logged in to validate.');
+      Alert.alert('Login necessário', 'Você precisa estar logado para validar.');
       return;
     }
     if (!poi?.current_contribution) return;
     try {
       await postValidation(poi.current_contribution.id, { validation_type: 'confirm' });
-      Alert.alert('Success', 'Validation submitted.');
+      Alert.alert('Sucesso', 'Validação enviada.');
       loadPoiDetails();
     } catch (e) {
-      Alert.alert('Error', 'Failed to submit validation.');
+      Alert.alert('Erro', 'Falha ao enviar validação.');
     }
   };
 
   const handleReport = async () => {
     if (!token) {
-      Alert.alert('Login required', 'You must be logged in to report.');
+      Alert.alert('Login necessário', 'Você precisa estar logado para reportar.');
       return;
     }
     if (!poi?.current_contribution) return;
     try {
       await postValidation(poi.current_contribution.id, { validation_type: 'dispute' });
-      Alert.alert('Success', 'Report submitted.');
+      Alert.alert('Sucesso', 'Reporte enviado.');
       loadPoiDetails();
     } catch (e) {
-      Alert.alert('Error', 'Failed to submit report.');
+      Alert.alert('Erro', 'Falha ao enviar reporte.');
     }
   };
 
   const handleStatusClick = (status: 'both' | 'money' | 'paper' | 'none') => {
     if (!token) {
-      Alert.alert('Login required', 'You must be logged in to contribute.');
+      Alert.alert('Login necessário', 'Você precisa estar logado para contribuir.');
       return;
     }
     setSelectedStatus(status as CMStatusType);
@@ -356,10 +356,10 @@ export default function PoiDetailsScreen() {
     const lat = Number(poi.latitude);
     const lng = Number(poi.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      Alert.alert('Error', 'Location coordinates are not available.');
+      Alert.alert('Erro', 'Coordenadas de localização não disponíveis.');
       return;
     }
-    const label = encodeURIComponent(poi.name || poi.address || 'Location');
+    const label = encodeURIComponent(poi.name || poi.address || 'Localização');
 
     // Web: always open HTTPS Google Maps (geo: links often fail on iOS Safari and bounce back)
     if (Platform.OS === 'web') {
@@ -371,7 +371,7 @@ export default function PoiDetailsScreen() {
           await Linking.openURL(webUrl);
         }
       } catch {
-        Alert.alert('Error', 'Unable to open maps.');
+        Alert.alert('Erro', 'Não foi possível abrir o mapa.');
       }
       return;
     }
@@ -387,7 +387,7 @@ export default function PoiDetailsScreen() {
         try {
           await Linking.openURL(appleMapsUrl);
         } catch {
-          Alert.alert('Error', 'Unable to open maps.');
+          Alert.alert('Erro', 'Não foi possível abrir o mapa.');
         }
       }
       return;
@@ -402,7 +402,7 @@ export default function PoiDetailsScreen() {
       try {
         await Linking.openURL(webUrl);
       } catch {
-        Alert.alert('Error', 'Unable to open maps.');
+        Alert.alert('Erro', 'Não foi possível abrir o mapa.');
       }
     }
   };
@@ -415,19 +415,19 @@ export default function PoiDetailsScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.centeredText}>Loading POI details…</Text>
+          <Text style={styles.centeredText}>Carregando detalhes do POI…</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (error || !poi) {
+  if (error) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centered}>
-          <Text style={styles.centeredText}>{error || 'POI not found'}</Text>
+          <Text style={styles.centeredText}>{error || 'POI não encontrado'}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={() => loadPoiDetails()}>
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <Text style={styles.retryButtonText}>Tentar novamente</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -458,7 +458,7 @@ export default function PoiDetailsScreen() {
           <TouchableOpacity style={styles.openMapsButton} onPress={handleOpenInMaps}>
             <View style={styles.openMapsButtonContent}>
               <Text style={styles.openMapsIcon}>📍</Text>
-              <Text style={styles.openMapsButtonText}>Open in Maps</Text>
+              <Text style={styles.openMapsButtonText}>Abrir no Maps</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -482,7 +482,7 @@ export default function PoiDetailsScreen() {
 
         {/* Status Label */}
         {!hasContribution ? (
-          <Text style={styles.noUpdatesLabel}>No updates today</Text>
+          <Text style={styles.noUpdatesLabel}>Sem atualizações hoje</Text>
         ) : (
           <Text style={styles.updatedLabel}>{elapsedLabel}</Text>
         )}
@@ -500,7 +500,7 @@ export default function PoiDetailsScreen() {
           // State 3: Within TTL - show contributor, counts, validation buttons, and banner
           <>
             <Text style={styles.infoGivenByText}>
-              Info given by {poi.current_contribution?.is_owner ? 'you' : (poi.current_contribution?.user.name || 'User')}
+              Informação fornecida por {poi.current_contribution?.is_owner ? 'você' : (poi.current_contribution?.user.name || 'Usuário')}
             </Text>
             {(poi.current_contribution?.is_owner || alreadyValidated || (poi.current_contribution?.can_validate === false && !poi.current_contribution?.is_owner)) && (
               <Text style={styles.cannotValidateText}>
@@ -525,7 +525,7 @@ export default function PoiDetailsScreen() {
                   }}
                   disabled={poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false}
                 >
-                  <Text style={styles.validButtonText}>VALID</Text>
+                  <Text style={styles.validButtonText}>VALIDAR</Text>
                 </TouchableOpacity>
               </View>
               <View style={styles.validationButtonWrapper}>
@@ -543,30 +543,30 @@ export default function PoiDetailsScreen() {
                   }}
                   disabled={poi.current_contribution?.is_owner || alreadyValidated || poi.current_contribution?.can_validate === false}
                 >
-                  <Text style={styles.reportButtonText}>REPORT</Text>
+                  <Text style={styles.reportButtonText}>REPORTAR</Text>
                 </TouchableOpacity>
               </View>
             </View>
             <View style={styles.recentlyUpdatedContainer}>
               <Text style={styles.recentlyUpdatedText}>
-                Updated recently, check back in {timeUntilNext}
+                Atualizado recentemente, verifique novamente em {timeUntilNext}
               </Text>
             </View>
           </>
         ) : (
           // State 2: Expired - show previous contributions info
           <View style={styles.contentSection}>
-            <Text style={styles.previousContributionsTitle}>Previous Contributions</Text>
+            <Text style={styles.previousContributionsTitle}>Contribuições anteriores</Text>
             <View style={styles.statsRow}>
-              <Text style={styles.statsLabel}>Last contributor:</Text>
+              <Text style={styles.statsLabel}>Último contribuidor:</Text>
               <Text style={styles.statsValue}>{poi.current_contribution?.user.name}</Text>
             </View>
             <View style={styles.statsRow}>
-              <Text style={styles.statsLabel}>Validations:</Text>
+              <Text style={styles.statsLabel}>Validações:</Text>
               <Text style={[styles.statsValue, { color: '#34c759' }]}>{poi.current_contribution?.validations ?? 0}</Text>
             </View>
             <View style={styles.statsRow}>
-              <Text style={styles.statsLabel}>Reports:</Text>
+              <Text style={styles.statsLabel}>Reportes:</Text>
               <Text style={[styles.statsValue, { color: '#ff3b30' }]}>{poi.current_contribution?.reports ?? 0}</Text>
             </View>
             <Text style={styles.infoText}>
@@ -599,7 +599,7 @@ export default function PoiDetailsScreen() {
                   contribution_type,
                   created_at: nowIso,
                   expires_at: nowIso,
-                  user: { id: 'me', name: 'You' },
+                  user: { id: 'me', name: 'Você' },
                   validations: 0,
                   reports: 0,
                 },
@@ -630,17 +630,17 @@ export default function PoiDetailsScreen() {
                 <Text style={styles.modalIconText}>{validationType === 'valid' ? '✓' : '🗑'}</Text>
               </View>
               <Text style={styles.validationModalTitle}>
-                {validationType === 'valid' ? 'Validate info' : 'Report info'}
+                {validationType === 'valid' ? 'Validar informação' : 'Reportar informação'}
               </Text>
               <Text style={styles.validationModalText}>
-                Are you sure you want to {validationType === 'valid' ? 'validate' : 'report'} this info?{' '}
-                This action cannot be undone.
+                Tem certeza que deseja {validationType === 'valid' ? 'validar' : 'reportar'} esta informação?{' '}
+                Esta ação não pode ser desfeita.
               </Text>
               <TouchableOpacity
                 style={[styles.validationModalButton, validationType === 'valid' ? styles.validateButton : styles.reportModalButton]}
                 onPress={async () => {
                   if (!token) {
-                    Alert.alert('Login required', 'You must be logged in.');
+                    Alert.alert('Login necessário', 'Você precisa estar logado.');
                     setShowValidationModal(false);
                     return;
                   }
@@ -650,9 +650,7 @@ export default function PoiDetailsScreen() {
                     await postValidation(poi.current_contribution.id, { validation_type: vt });
                     setShowValidationModal(false);
                     setValidationType(null);
-                    Alert.alert('Success', `${validationType === 'valid' ? 'Validation' : 'Report'} submitted.`);
-                    // Immediately reflect that this user has validated: disable actions
-                    setAlreadyValidated(true);
+                    Alert.alert('Sucesso', `${validationType === 'valid' ? 'Validação' : 'Reporte'} enviada.`);
                     setPoi(prev => {
                       if (!prev?.current_contribution) return prev;
                       return {
@@ -660,7 +658,7 @@ export default function PoiDetailsScreen() {
                         current_contribution: {
                           ...prev.current_contribution,
                           can_validate: false,
-                          validations: prev.current_contribution.validations ?? 0,
+                          validations: (prev.current_contribution.validations ?? 0) + 1,
                           reports: prev.current_contribution.reports ?? 0,
                         },
                       } as any;
@@ -682,12 +680,12 @@ export default function PoiDetailsScreen() {
                         } as any;
                       });
                     }
-                    Alert.alert('Error', `Failed to submit ${validationType}.`);
+                    Alert.alert('Erro', `Falha ao enviar ${validationType === 'valid' ? 'validação' : 'reporte'}.`);
                   }
                 }}
               >
                 <Text style={styles.validationModalButtonText}>
-                  {validationType === 'valid' ? 'Validate' : 'Report'}
+                  {validationType === 'valid' ? 'Validar' : 'Reportar'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -697,7 +695,7 @@ export default function PoiDetailsScreen() {
                   setValidationType(null);
                 }}
               >
-                <Text style={styles.validationModalCancelText}>Cancel</Text>
+                <Text style={styles.validationModalCancelText}>Cancelar</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -712,7 +710,7 @@ export default function PoiDetailsScreen() {
           />
         )}
       </ScrollView>
-    </SafeAreaView>
+    </SafeAreaView >
   );
 }
 
